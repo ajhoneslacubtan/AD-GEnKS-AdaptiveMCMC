@@ -3,3 +3,7 @@ __pycache__/
 .env
 .venv/
 logs/
+.vscode/
+*.nc
+*.pickle
+*.pkl

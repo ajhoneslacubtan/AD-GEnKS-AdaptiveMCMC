@@ -2,7 +2,17 @@ import numpy as np
 from numba import njit, prange
 from tqdm import tqdm
 from sampler.utils import inverse_covariance_Z
+from julia.api import Julia
 
+# Initialize the Julia runtime (disable compiled modules for compatibility)
+jl = Julia(compiled_modules=False)
+
+from julia import Pkg
+# Activate the Julia project where EnKSSamplerOptimized is located.
+Pkg.activate("sampler/EnKSSamplerOptimized")
+
+# Import the Julia module
+from julia import EnKSSamplerOptimized
 
 class EnKS:
     def __init__(self, N_ensemble, lags, beta, nu, sigma_eta_sq, sigma_epsilon_sq, prior_params):
@@ -76,3 +86,51 @@ class EnKS:
                 Y_analysis[:, :, l] += update
 
         return Y_analysis
+
+def EnKS_Optimized(observations: np.ndarray,
+                    neighbour_locs: np.ndarray,
+                    N_ensemble: int,
+                    lags: int,
+                    beta: float,
+                    nu: np.ndarray,
+                    sigma_eta_sq: float,
+                    sigma_epsilon_sq: float,
+                    m_state: float,
+                    v_state: float,
+                    epsilon: float = 1e-5) -> np.ndarray:
+    """
+    Python wrapper for the Julia EnKSSamplerOptimized.run function.
+    
+    Parameters:
+        observations (np.ndarray): 2D array of shape (N, T_obs) containing observations.
+        neighbour_locs (np.ndarray): 2D array of shape (N, 5) with neighbor indices (0-based).
+        N_ensemble (int): Number of ensemble members.
+        lags (int): Number of lags for the smoothing update.
+        beta (float): Model parameter.
+        nu (np.ndarray): 2D array of shape (T_obs, 2) with [v_x, v_y] per time step.
+        sigma_eta_sq (float): Process noise variance.
+        sigma_epsilon_sq (float): Observation noise variance.
+        m_state (float): Mean state for initializing the ensemble.
+        v_state (float): Variance state for initializing the ensemble.
+        epsilon (float, optional): Regularization parameter. Default is 1e-5.
+        
+    Returns:
+        np.ndarray: 3D array of shape (N, N_ensemble, T_obs+1) representing the analysis ensemble.
+    """
+    # Call the Julia run function. PyJulia automatically converts NumPy arrays to Julia arrays.
+    result = EnKSSamplerOptimized.run(
+        observations,
+        neighbour_locs,
+        N_ensemble,
+        lags,
+        beta,
+        nu,
+        sigma_eta_sq,
+        sigma_epsilon_sq,
+        m_state,
+        v_state,
+        epsilon=epsilon
+    )
+    
+    # Convert the result to a NumPy array if necessary.
+    return np.array(result)

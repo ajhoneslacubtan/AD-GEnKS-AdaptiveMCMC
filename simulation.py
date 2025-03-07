@@ -36,7 +36,6 @@ def simulate_advection(alpha: float, sigma_nu_sq: float, T_desired: int, burn_in
         sigma_nu_sq (float): Variance for the advection noise.
         T_desired (int): Number of desired time steps (after discarding burn-in).
         burn_in_fraction (float): Fraction of T_desired to use as burn-in.
-        nu0 (np.ndarray): Initial advection parameter (2-dimensional).
     
     Returns:
         np.ndarray: Array of shape (total_steps+1, 2) with simulated advection values.
@@ -211,25 +210,27 @@ def initialize_simulation_params() -> dict:
             'mean_nu_x_zero': 0.0,
             'mean_nu_y_zero': 0.0,
             'var_nu_zero': 0.01,
-            'a_nu': 2.0,
-            'b_nu': 0.5
+            'a_nu': 10,
+            'b_nu': 6
         },
         'process': {
-            'm_state': -0.2,
+            'm_state': 0,
             'v_state': 1.0,
             'a_eta': 5.0,
-            'b_eta': 0.1
+            'b_eta': 0.1,
+            'sigma_eta_sq': 0.01 # If fixed, use this value for the process error variance
         },
         'observation': {
             'a_epsilon': 5.0,
-            'b_epsilon': 0.1
+            'b_epsilon': 0.1,
+            'sigma_epsilon_sq': 0.01 # If fixed, use this value for the observation error variance
         },
         'autoregression': {
-            'm_alpha': 0.5,
-            'v_alpha': 0.1,
+            'm_alpha': 0.6,
+            'v_alpha': 0.01,
         },
         'diffusion': {
-            'm_beta': 0.125,
+            'm_beta': 0.04,
             'v_beta': 0.001736
         },
         'initial_state': {
@@ -274,8 +275,8 @@ def get_mcmc_initializations(params: dict, observations: np.ndarray = None) -> d
     nu_init[0, 0] = np.random.normal(prior_params['advection']['mean_nu_x_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
     nu_init[1, 0] = np.random.normal(prior_params['advection']['mean_nu_y_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
     for t in range(1, time_steps+1):
-        nu_init[0, t] = init['alpha'] * nu_init[0, t - 1] + np.random.normal(0, np.sqrt(params['sigma_nu_sq']))
-        nu_init[1, t] = init['alpha'] * nu_init[1, t - 1] + np.random.normal(0, np.sqrt(params['sigma_nu_sq']))
+        nu_init[0, t] = init['alpha'] * nu_init[0, t - 1] + np.random.normal(prior_params['advection']['mean_nu_y_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
+        nu_init[1, t] = init['alpha'] * nu_init[1, t - 1] + np.random.normal(prior_params['advection']['mean_nu_y_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
     init['nu'] = nu_init.T  # shape: (time_steps, 2)
 
     init['sigma_nu_sq'] = np.random.gamma(prior_params['advection']['a_nu'], 1 / prior_params['advection']['b_nu'])
@@ -304,44 +305,3 @@ def get_mcmc_initializations(params: dict, observations: np.ndarray = None) -> d
                                      (N, time_steps + 1))
     
     return init
-
-def main():
-    """
-    Execute the simulation experiment and print a summary of the generated outputs.
-    """
-    # Initialize simulation parameters and priors
-    params = initialize_simulation_params()
-    
-    # Create neighbor locations matrix
-    neighbour_locs = create_neighbour_locs(params['grid_size_x'], params['grid_size_y'])
-    
-    # Simulate advection parameters using an AR(1) process
-    nu = simulate_advection(params['alpha'], params['sigma_nu_sq'], 
-                          params['time_steps'], params['nu0'])
-    
-    # Simulate the latent state evolution
-    state = simulate_state(params['initial_state'], nu, params['beta'], 
-                         params['sigma_eta_sq'], params['grid_shape'], 
-                         neighbour_locs)
-    
-    # Simulate the observations (data) by adding observation noise
-    observations = simulate_observations(state, params['sigma_epsilon_sq'])
-    
-    # Generate initializations for the future Gibbs/MCMC sampler
-    mcmc_init = get_mcmc_initializations(params)
-    
-    # Print a summary of the simulation outputs and initializations
-    print("Simulation Completed:")
-    print(f"Advection parameters (nu) shape: {nu.shape}")
-    print(f"Latent states (state) shape: {state.shape}")
-    print(f"Observations shape: {observations.shape}")
-    print("\nMCMC Initializations:")
-    for key, value in mcmc_init.items():
-        if isinstance(value, np.ndarray):
-            print(f"{key} shape: {value.shape}")
-        else:
-            print(f"{key}: {value}")
-    
-
-if __name__ == '__main__':
-    main() 
