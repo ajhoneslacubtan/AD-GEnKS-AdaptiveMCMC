@@ -94,7 +94,8 @@ def simulate_state(sigma_eta_sq: float, nu: np.ndarray, beta: float,
         burn_in_fraction (float): Fraction of T_desired to use as burn-in (default is 0.5).
     
     Returns:
-        np.ndarray: Simulated latent states of shape (N, T_desired+1) corresponding to times 0 through T_desired.
+        np.ndarray: Array of shape (N, T_desired+1) containing the latent state trajectory.
+        np.ndarray: Array of shape (T_desired+1, 2) containing the advection parameters after burn-in.
     """
     grid_size_x, grid_size_y = grid_shape
     N = grid_size_x * grid_size_y
@@ -114,8 +115,8 @@ def simulate_state(sigma_eta_sq: float, nu: np.ndarray, beta: float,
     
     # Simulate the state evolution over total_steps time steps
     for t in range(1, total_steps + 1):
-        nu_x = nu[t, 0]
-        nu_y = nu[t, 1]
+        nu_x = nu[t-1, 0]
+        nu_y = nu[t-1, 1]
         prev_state = temp_state[:, t - 1]
         
         temp_state[:, t] = ((1 - 4 * beta) * prev_state +
@@ -126,7 +127,7 @@ def simulate_state(sigma_eta_sq: float, nu: np.ndarray, beta: float,
                             np.random.normal(0, np.sqrt(sigma_eta_sq), N))
     
     # Discard the burn-in portion. The returned state has times 0,...,T_desired (T_desired+1 states).
-    return temp_state[:, burn_in:]
+    return temp_state[:, burn_in:], nu[burn_in:]
 
 
 def simulate_observations(state: np.ndarray, sigma_epsilon_sq: float, missing_rate: float = 0.2) -> np.ndarray:
@@ -189,8 +190,8 @@ def initialize_simulation_params() -> dict:
     # Domain settings (with corrected grid spacing to match "10 km" spacing)
     params['dx'] = 10000.0  # 10 km (in meters)
     params['dy'] = 10000.0  # 10 km (in meters)
-    params['grid_size_x'] = 63
-    params['grid_size_y'] = 89
+    params['grid_size_x'] = 15 # 63
+    params['grid_size_y'] = 15 # 89
     params['grid_shape'] = (params['grid_size_x'], params['grid_size_y'])
     params['N'] = params['grid_size_x'] * params['grid_size_y']
     
@@ -226,11 +227,11 @@ def initialize_simulation_params() -> dict:
             'sigma_epsilon_sq': 0.01 # If fixed, use this value for the observation error variance
         },
         'autoregression': {
-            'm_alpha': 0.6,
+            'm_alpha': 0.5,
             'v_alpha': 0.01,
         },
         'diffusion': {
-            'm_beta': 0.04,
+            'm_beta': 0.125,
             'v_beta': 0.001736
         },
         'initial_state': {

@@ -7,3 +7,4 @@ logs/
 *.nc
 *.pickle
 *.pkl
+gibbs_results.zarr/
