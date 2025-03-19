@@ -43,9 +43,9 @@ def main():
     mcmc_init = get_mcmc_initializations(params, observations)
 
     # Burn-in, thinning and number of iterations for the Gibbs sampler
-    burn_in = 1800
+    burn_in = 10
     thin = 2
-    iter = 3000
+    iter = 20
 
     # Define fixed sigma values
     sigma_eta_sq = 0.01
@@ -69,7 +69,7 @@ def main():
         N_ensemble=params['N_ensemble'],
         smoothing_window=params['smoothing_window'],
         fixed_sigmas=True,
-        generate_forecasts=True
+        beta_sampling_method='adaptive'
     )
 
     # Load the samples dictionary containing both in-memory and zarr paths
@@ -83,12 +83,6 @@ def main():
         'Y_samples': store['Y_samples'][:],
         'nu_samples': store['nu_samples'][:]
     })
-    
-    if 'forecast_states' in store:
-        samples.update({
-            'forecast_states': store['forecast_states'][:],
-            'forecast_observations': store['forecast_observations'][:]
-        })
 
     # ====================
     # Create the InferenceData dictionaries
@@ -139,7 +133,7 @@ def main():
         'true_advection': nu.T
     }
 
-
+    # Create coords and dims dictionaries
     num_draws = samples['alpha_samples'].shape[0]
     N = samples['Y_samples'].shape[0]
     T_state = samples['Y_samples'].shape[1]

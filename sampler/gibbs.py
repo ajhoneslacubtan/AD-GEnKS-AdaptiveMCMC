@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.typing import NDArray
 from typing import Dict, Any
-from scipy.stats import truncnorm, invgamma
+from scipy.stats import truncnorm, invgamma, norm
 from sampler.EnKS import EnKS_Optimized
 from tqdm import tqdm
 import gc
@@ -26,8 +26,8 @@ class GibbsSampler:
                  N_ensemble: int,
                  smoothing_window: int,
                  fixed_sigmas: bool = False,
-                 generate_forecasts: bool = False,
-                 forecast_steps: int = 12) -> None:
+                 beta_sampling_method: str = "normal"
+                 ) -> None:    # choose "normal" or "adaptive"
         self.observations = observations
         self.neighbour_locs = neighbour_locs
         self.num_iterations = num_iterations
@@ -48,20 +48,19 @@ class GibbsSampler:
         self.N = observations.shape[0]
         self.T = observations.shape[1]
 
-        self.fixed_sigmas = fixed_sigmas
-
-        # Forecast states and observations
-        if generate_forecasts:
-            self.generate_forecasts = True
-            self.forecast_steps = forecast_steps
-        else:
-            self.generate_forecasts = False        
+        self.fixed_sigmas = fixed_sigmas      
 
         self.self_idx = neighbour_locs[:, 0]
         self.left_idx = neighbour_locs[:, 1]
         self.right_idx = neighbour_locs[:, 2]
         self.up_idx = neighbour_locs[:, 3]
         self.down_idx = neighbour_locs[:, 4]
+
+        # Option for sampling β:
+        self.beta_sampling_method = beta_sampling_method  # "normal" or "adaptive"
+        if self.beta_sampling_method == "adaptive":
+            self._beta_proposal_sd = 0.01  # fixed proposal std for RWMH during burn-in
+            self._beta_burn_in_samples = []  # collect burn-in samples for β
 
         print(f"Sampler initialized with:")
         print(f"  - Number of iterations: {self.num_iterations}")
@@ -86,73 +85,70 @@ class GibbsSampler:
             scale=np.sqrt(self.sigma_epsilon_sq)
         )
 
-    def rolling_forecast_prediction(self,
-                                    initial_state: np.ndarray,
-                                    initial_nu: np.ndarray,
-                                    forecast_steps: int,
-                                    neighbour_locs: np.ndarray,
-                                    parameters: dict,
-                                    num_samples: int = 12) -> dict:
-        """
-        Generate out-of-sample rolling forecast predictive samples via composition sampling.
-        """
-        N = initial_state.shape[0]
-        
-        left_neighbors  = neighbour_locs[:, 1].astype(int)
-        right_neighbors = neighbour_locs[:, 2].astype(int)
-        up_neighbors    = neighbour_locs[:, 3].astype(int)
-        down_neighbors  = neighbour_locs[:, 4].astype(int)
-        
-        forecast_states_samples = np.zeros((N, forecast_steps + 1, num_samples), dtype=np.float32)
-        forecast_obs_samples    = np.zeros((N, forecast_steps, num_samples), dtype=np.float32)
-        
-        for s in range(num_samples):
-            current_state = initial_state.copy()   # shape (N,)
-            current_nu    = initial_nu.copy()        # shape (2,)
-            
-            forecast_states = [current_state.copy()]
-            forecast_obs    = []
-            
-            for t in range(1, forecast_steps + 1):
-                noise_nu = np.random.multivariate_normal(mean=np.zeros(2),
-                                                        cov=parameters['sigma_nu_sq'] * np.eye(2))
-                new_nu = parameters['alpha'] * current_nu + noise_nu
+    # ------------------------------------------------------------
+    # PRIVATE METHOD: Compute the log full conditional for β.
+    # This is based on the model:
+    #   Y_t,i ~ N( μ_{t,i}(β), σ²_η ),
+    # with
+    #   μ_{t,i}(β) = Y_{t-1,i} + β * B_{t,i} + ν-part,
+    # where
+    #   B_{t,i} = (Y_{t-1,j1} + Y_{t-1,j2} + Y_{t-1,j3} + Y_{t-1,j4} - 4 Y_{t-1,i}).
+    # The log posterior (ignoring additive constants and prior, which is Uniform(0,0.25))
+    # is proportional to:
+    #   - 1/(2σ²_η) ∑_{t=1}^{T-1} (A_t - β B_t)^2, with the constraint β ∈ (0, 0.25).
+    # ------------------------------------------------------------
+    def _log_posterior_beta(self, beta: float) -> float:
+        if beta <= 0 or beta >= 0.25:
+            return -np.inf
+        loglike = 0.0
+        for t in range(1, self.T):
+            st_self_prev  = self.state[self.self_idx, t - 1]
+            st_left_prev  = self.state[self.left_idx, t - 1]
+            st_right_prev = self.state[self.right_idx, t - 1]
+            st_up_prev    = self.state[self.up_idx, t - 1]
+            st_down_prev  = self.state[self.down_idx, t - 1]
+            A_t = self.state[self.self_idx, t] - st_self_prev \
+                  - self.nu[t - 1, 0] * (st_right_prev - st_left_prev) \
+                  - self.nu[t - 1, 1] * (st_down_prev - st_up_prev)
+            B_t = st_left_prev + st_right_prev + st_up_prev + st_down_prev - 4.0 * st_self_prev
+            loglike += -((A_t - beta * B_t) ** 2) / (2 * self.sigma_eta_sq)
+        return loglike
 
-                process_noise = np.random.normal(0, np.sqrt(parameters['sigma_eta_sq']), N)
-                
-                new_state = ((1 - 4 * parameters['beta']) * current_state +
-                            (parameters['beta'] - new_nu[0]) * current_state[right_neighbors] +
-                            (parameters['beta'] + new_nu[0]) * current_state[left_neighbors] +
-                            (parameters['beta'] - new_nu[1]) * current_state[down_neighbors] +
-                            (parameters['beta'] + new_nu[1]) * current_state[up_neighbors] +
-                            process_noise)
-                
-                observation_noise = np.random.normal(0, np.sqrt(parameters['sigma_epsilon_sq']), N)
-                obs = new_state + observation_noise
-                
-                current_state = new_state.copy()
-                current_nu = new_nu.copy()
-                
-                forecast_states.append(current_state.copy())
-                forecast_obs.append(obs.copy())
-            
-            forecast_states_array = np.stack(forecast_states, axis=1)
-            forecast_obs_array = np.stack(forecast_obs, axis=1)
-            
-            forecast_states_samples[:, :, s] = forecast_states_array.astype(np.float32)
-            forecast_obs_samples[:, :, s] = forecast_obs_array.astype(np.float32)
-
-            # If only one sample is requested, squeeze the extra dimension
-        if num_samples == 1:
-            return {
-                'forecast_states': forecast_states_samples.squeeze(2),  # Remove dimension of size 1
-                'forecast_observations': forecast_obs_samples.squeeze(2)  # Remove dimension of size 1
-            }
+    # ------------------------------------------------------------
+    # PRIVATE METHOD: RWMH update for β during burn-in.
+    # ------------------------------------------------------------
+    def _sample_beta_rwmh(self, current_beta: float) -> float:
+        proposal = current_beta + np.random.normal(0, self._beta_proposal_sd)
+        # Enforce support of Uniform(0, 0.25)
+        if proposal <= 0 or proposal >= 0.25:
+            return current_beta
+        log_post_current = self._log_posterior_beta(current_beta)
+        log_post_proposal = self._log_posterior_beta(proposal)
+        acceptance_prob = min(1, np.exp(log_post_proposal - log_post_current))
+        if np.random.rand() < acceptance_prob:
+            return proposal
         else:
-            return {
-                'forecast_states': forecast_states_samples,
-                'forecast_observations': forecast_obs_samples
-            }
+            return current_beta
+
+    # ------------------------------------------------------------
+    # PRIVATE METHOD: Independent MH update for β after burn-in.
+    # Uses an independent Normal proposal with mean and variance from burn-in.
+    # ------------------------------------------------------------
+    def _sample_beta_indep(self, current_beta: float, mu_beta: float, var_beta: float) -> float:
+        proposal = np.random.normal(mu_beta, np.sqrt(var_beta))
+        # Enforce support
+        if proposal <= 0 or proposal >= 0.25:
+            return current_beta
+        # Compute proposal densities:
+        g_current = norm.pdf(current_beta, loc=mu_beta, scale=np.sqrt(var_beta))
+        g_proposal = norm.pdf(proposal, loc=mu_beta, scale=np.sqrt(var_beta))
+        log_post_current = self._log_posterior_beta(current_beta)
+        log_post_proposal = self._log_posterior_beta(proposal)
+        acceptance_prob = min(1, np.exp(log_post_proposal - log_post_current) * (g_current / g_proposal))
+        if np.random.rand() < acceptance_prob:
+            return proposal
+        else:
+            return current_beta
 
     def sample(self) -> Dict[str, Any]:
         """
@@ -165,7 +161,6 @@ class GibbsSampler:
         sigma_nu_sq_samples = np.zeros(self.num_saved_samples, dtype=np.float32)
         sigma_epsilon_sq_samples = np.zeros(self.num_saved_samples, dtype=np.float32)
         log_complete_samples = np.zeros(self.num_saved_samples, dtype=np.float32)
-        log_obs_samples = np.zeros(self.num_saved_samples, dtype=np.float32)
         
         # Create zarr arrays only for large state variables
         store = zarr.open('gibbs_results.zarr', mode='w')
@@ -177,16 +172,6 @@ class GibbsSampler:
                                     shape=(2, self.T+1, self.num_saved_samples),
                                     chunks=(2, min(100, self.T+1), min(100, self.num_saved_samples)),
                                     dtype=np.float32)
-        
-        if self.generate_forecasts:
-            forecast_states = store.create_array('forecast_states',
-                                            shape=(self.N, self.forecast_steps+1, self.num_saved_samples),
-                                            chunks=(self.N, self.forecast_steps+1, min(100, self.num_saved_samples)),
-                                            dtype=np.float32)
-            forecast_observations = store.create_array('forecast_observations',
-                                                  shape=(self.N, self.forecast_steps, self.num_saved_samples),
-                                                  chunks=(self.N, self.forecast_steps, min(100, self.num_saved_samples)),
-                                                  dtype=np.float32)
         
         sample_idx = 0
         
@@ -231,25 +216,38 @@ class GibbsSampler:
             self.alpha = truncnorm.rvs(a_trunc, b_trunc, loc=mu_alpha, scale=np.sqrt(sigma_alpha_sq))
             
             # Sample β (diffusion parameter)
-            sum_Bt_sq = 0.0
-            sum_At_Bt = 0.0
-            for t in range(1, self.T):
-                st_self_prev = self.state[self.self_idx, t - 1]
-                st_left_prev = self.state[self.left_idx, t - 1]
-                st_right_prev = self.state[self.right_idx, t - 1]
-                st_up_prev = self.state[self.up_idx, t - 1]
-                st_down_prev = self.state[self.down_idx, t - 1]
-                B_t = st_left_prev + st_right_prev + st_up_prev + st_down_prev - 4.0 * st_self_prev
-                A_t = (self.state[self.self_idx, t] - st_self_prev 
-                    - self.nu[t - 1, 0] * (st_right_prev - st_left_prev)
-                    - self.nu[t - 1, 1] * (st_down_prev - st_up_prev))
-                sum_Bt_sq += B_t.T @ B_t
-                sum_At_Bt += A_t @ B_t
-            a_beta = (1.0 / self.sigma_eta_sq) * sum_Bt_sq + 1 / self.prior_params['diffusion']['v_beta']
-            b_beta = (1.0 / self.sigma_eta_sq) * sum_At_Bt + self.prior_params['diffusion']['m_beta'] / self.prior_params['diffusion']['v_beta']
-            mu_beta = b_beta / a_beta
-            sigma_beta_sq = 1 / a_beta
-            self.beta = np.random.normal(mu_beta, np.sqrt(sigma_beta_sq))
+            if self.beta_sampling_method == "normal":
+                sum_Bt_sq = 0.0
+                sum_At_Bt = 0.0
+                for t in range(1, self.T):
+                    st_self_prev = self.state[self.self_idx, t - 1]
+                    st_left_prev = self.state[self.left_idx, t - 1]
+                    st_right_prev = self.state[self.right_idx, t - 1]
+                    st_up_prev = self.state[self.up_idx, t - 1]
+                    st_down_prev = self.state[self.down_idx, t - 1]
+                    B_t = st_left_prev + st_right_prev + st_up_prev + st_down_prev - 4.0 * st_self_prev
+                    A_t = (self.state[self.self_idx, t] - st_self_prev 
+                        - self.nu[t - 1, 0] * (st_right_prev - st_left_prev)
+                        - self.nu[t - 1, 1] * (st_down_prev - st_up_prev))
+                    sum_Bt_sq += B_t.T @ B_t
+                    sum_At_Bt += A_t @ B_t
+                a_beta = (1.0 / self.sigma_eta_sq) * sum_Bt_sq + 1 / self.prior_params['diffusion']['v_beta']
+                b_beta = (1.0 / self.sigma_eta_sq) * sum_At_Bt + self.prior_params['diffusion']['m_beta'] / self.prior_params['diffusion']['v_beta']
+                mu_beta = b_beta / a_beta
+                sigma_beta_sq = 1 / a_beta
+                self.beta = np.random.normal(mu_beta, np.sqrt(sigma_beta_sq))
+            else:
+                # "adaptive" method using the two-phase approach.
+                if iter < self.burn_in:
+                    # Burn-in phase: update β via RWMH and collect samples.
+                    self.beta = self._sample_beta_rwmh(self.beta)
+                    self._beta_burn_in_samples.append(self.beta)
+                else:
+                    # After burn-in: compute empirical mean/variance from burn-in samples
+                    burn_in_array = np.array(self._beta_burn_in_samples)
+                    mu_beta = burn_in_array.mean()
+                    var_beta = burn_in_array.var()
+                    self.beta = self._sample_beta_indep(self.beta, mu_beta, var_beta)
             
             # Sample advection parameters (nu)
             # v_0
@@ -323,14 +321,10 @@ class GibbsSampler:
             b_nu = self.prior_params['advection']['b_nu'] + 0.5 * np.sum(residuals_nu)
             self.sigma_nu_sq = invgamma.rvs(a=a_nu, scale=b_nu)
             
-            # Compute log likelihoods
+            # Compute log complete likelihood
             log_complete = -0.5 * self.N * self.T * np.log(2 * np.pi * self.sigma_epsilon_sq)
             resid_complete = self.augmented_observations - self.state[:, 1:]
             log_complete -= 0.5 / self.sigma_epsilon_sq * np.sum(resid_complete**2)
-            missing_mask = np.isnan(self.observations)
-            observed_mask = ~missing_mask
-            resid_obs = (self.observations - self.state[:, 1:])[observed_mask]
-            log_obs = -0.5 * np.sum(np.log(2 * np.pi * self.sigma_epsilon_sq) + (resid_obs**2) / self.sigma_epsilon_sq)
             
             # Save samples after burn-in and thinning
             if iter >= self.burn_in and (iter - self.burn_in) % self.thin == 0:
@@ -342,29 +336,10 @@ class GibbsSampler:
                 sigma_nu_sq_samples[idx] = self.sigma_nu_sq
                 sigma_epsilon_sq_samples[idx] = self.sigma_epsilon_sq
                 log_complete_samples[idx] = log_complete
-                log_obs_samples[idx] = log_obs
                 
                 # Save large arrays to zarr
                 Y_samples[:, :, idx] = self.state.astype(np.float32)
                 nu_samples[:, :, idx] = self.nu.transpose(1, 0).astype(np.float32)
-                
-                if self.generate_forecasts:
-                    forecast_results = self.rolling_forecast_prediction(
-                        initial_state=self.state[:, -1],
-                        initial_nu=self.nu[-1],
-                        forecast_steps=self.forecast_steps,
-                        neighbour_locs=self.neighbour_locs,
-                        parameters={
-                            'alpha': self.alpha,
-                            'beta': self.beta,
-                            'sigma_eta_sq': self.sigma_eta_sq,
-                            'sigma_epsilon_sq': self.sigma_epsilon_sq,
-                            'sigma_nu_sq': self.sigma_nu_sq
-                        },
-                        num_samples=1
-                    )
-                    forecast_states[:, :, idx] = forecast_results['forecast_states']
-                    forecast_observations[:, :, idx] = forecast_results['forecast_observations']
                 
                 sample_idx += 1
             
@@ -379,15 +354,8 @@ class GibbsSampler:
             'sigma_nu_sq_samples': sigma_nu_sq_samples,
             'sigma_epsilon_sq_samples': sigma_epsilon_sq_samples,
             'log_complete_samples': log_complete_samples,
-            'log_obs_samples': log_obs_samples,
             'Y_samples': 'gibbs_results.zarr/Y_samples',
             'nu_samples': 'gibbs_results.zarr/nu_samples'
         }
-        
-        if self.generate_forecasts:
-            result.update({
-                'forecast_states': 'gibbs_results.zarr/forecast_states',
-                'forecast_observations': 'gibbs_results.zarr/forecast_observations'
-            })
         
         return result
