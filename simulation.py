@@ -190,8 +190,8 @@ def initialize_simulation_params() -> dict:
     # Domain settings (with corrected grid spacing to match "10 km" spacing)
     params['dx'] = 10000.0  # 10 km (in meters)
     params['dy'] = 10000.0  # 10 km (in meters)
-    params['grid_size_x'] = 15 # 63
-    params['grid_size_y'] = 15 # 89
+    params['grid_size_x'] = 63
+    params['grid_size_y'] = 89
     params['grid_shape'] = (params['grid_size_x'], params['grid_size_y'])
     params['N'] = params['grid_size_x'] * params['grid_size_y']
     
@@ -201,7 +201,7 @@ def initialize_simulation_params() -> dict:
     # True simulation parameters
     params['alpha'] = 0.6          # True autoregression coefficient
     params['beta'] = 0.0001         # True diffusion coefficient
-    params['sigma_nu_sq'] = 0.009    # True advection error variance
+    params['sigma_nu_sq'] = 0.01    # True advection error variance
     params['sigma_eta_sq'] = 0.01    # True process error variance
     params['sigma_epsilon_sq'] = 0.01 # True observation error variance
     

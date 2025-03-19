@@ -22,7 +22,7 @@ def main():
     params = initialize_simulation_params()
     # Modify the parameters for the Gibbs sampler
     params['N_ensemble'] = 100
-    params['smoothing_window'] = 6
+    params['smoothing_window'] = 12
     params['time_steps'] = 60
     
     # Create neighbor locations matrix
@@ -43,9 +43,9 @@ def main():
     mcmc_init = get_mcmc_initializations(params, observations)
 
     # Burn-in, thinning and number of iterations for the Gibbs sampler
-    burn_in = 1000
+    burn_in = 1800
     thin = 2
-    iter = 2000
+    iter = 3000
 
     # Define fixed sigma values
     sigma_eta_sq = 0.01
@@ -169,19 +169,54 @@ def main():
         "true_advection": ["component", "time_state"]
     }
 
-    idata = az.from_dict(
+    # (After creating coords and dims dictionaries)
+    
+    # Save posterior samples and observations as InferenceData
+    idata_posterior = az.from_dict(
         posterior=posterior,
+        observed_data=observed_data,
+        coords={
+            "draw": coords["draw"],
+            "location": coords["location"],
+            "time_state": coords["time_state"],
+            "time_obs": coords["time_obs"]
+        },
+        dims={
+            "alpha": dims["alpha"],
+            "beta": dims["beta"],
+            "sigma_nu_sq": dims["sigma_nu_sq"],
+            "sigma_eta_sq": dims["sigma_eta_sq"],
+            "sigma_epsilon_sq": dims["sigma_epsilon_sq"],
+            "nu": dims["nu"],
+            "state": dims["state"],
+            "observed_variable": dims["observed_variable"],
+        }
+    )
+    az.to_netcdf(idata_posterior, 'inference_data.nc')
+    
+    # Save remaining groups in a separate InferenceData file
+    idata_extra = az.from_dict(
         log_likelihood=log_likelihood,
         prior=prior,
         posterior_predictive=posterior_predictive,
         prior_predictive=prior_predictive,
-        observed_data=observed_data,
         constant_data=constant_data,
-        coords=coords,
-        dims=dims
+        coords={
+            "draw": coords["draw"],
+            "location": coords["location"],
+            "time_state": coords["time_state"],
+            "time_obs": coords["time_obs"],
+            "component": coords["component"]
+        },
+        dims={
+            "log_complete_samples": dims["log_complete_samples"],
+            "log_obs_samples": dims["log_obs_samples"],
+            "Z": dims["Z"],
+            "true_state": dims["true_state"],
+            "true_advection": dims["true_advection"]
+        }
     )
-
-    az.to_netcdf(idata, 'inference_data_test.nc')
+    az.to_netcdf(idata_extra, 'extra_data.nc')
 
 if __name__ == '__main__':
     main()
