@@ -5,7 +5,6 @@ from scipy.stats import truncnorm, invgamma, norm
 from sampler.EnKS import EnKS_Optimized
 from tqdm import tqdm
 import gc
-from zarr.storage import LocalStore
 import zarr
 
 class GibbsSampler: 
@@ -59,7 +58,10 @@ class GibbsSampler:
         # Option for sampling β:
         self.beta_sampling_method = beta_sampling_method  # "normal" or "adaptive"
         if self.beta_sampling_method == "adaptive":
-            self._beta_proposal_sd = 0.01  # fixed proposal std for RWMH during burn-in
+            _scale = 3  # scale for the proposal distribution
+            self._beta_proposal_var = _scale * 0.002  # fixed proposal std for RWMH during burn-in
+            self._beta_trials = 0         # count total proposals
+            self._beta_accepted = 0       # count accepted proposals
             self._beta_burn_in_samples = []  # collect burn-in samples for β
 
         print(f"Sampler initialized with:")
@@ -98,27 +100,52 @@ class GibbsSampler:
     #   - 1/(2σ²_η) ∑_{t=1}^{T-1} (A_t - β B_t)^2, with the constraint β ∈ (0, 0.25).
     # ------------------------------------------------------------
     def _log_posterior_beta(self, beta: float) -> float:
+        # Enforce the support of Uniform(0, 0.25)
         if beta <= 0 or beta >= 0.25:
             return -np.inf
-        loglike = 0.0
-        for t in range(1, self.T):
-            st_self_prev  = self.state[self.self_idx, t - 1]
-            st_left_prev  = self.state[self.left_idx, t - 1]
-            st_right_prev = self.state[self.right_idx, t - 1]
-            st_up_prev    = self.state[self.up_idx, t - 1]
-            st_down_prev  = self.state[self.down_idx, t - 1]
-            A_t = self.state[self.self_idx, t] - st_self_prev \
-                  - self.nu[t - 1, 0] * (st_right_prev - st_left_prev) \
-                  - self.nu[t - 1, 1] * (st_down_prev - st_up_prev)
-            B_t = st_left_prev + st_right_prev + st_up_prev + st_down_prev - 4.0 * st_self_prev
-            loglike += -((A_t - beta * B_t) ** 2) / (2 * self.sigma_eta_sq)
+
+        # We assume self.state has shape (N, T+1) and self.nu has shape (T+1, 2).
+        # The indices self.self_idx, self.left_idx, etc., have length N.
+        # For time steps t = 1, ..., T-1, we extract the previous states.
+        # These slices will have shape (N, T-1).
+        st_self_prev  = self.state[self.self_idx, :self.T-1]  
+        st_left_prev  = self.state[self.left_idx, :self.T-1]
+        st_right_prev = self.state[self.right_idx, :self.T-1]
+        st_up_prev    = self.state[self.up_idx, :self.T-1]
+        st_down_prev  = self.state[self.down_idx, :self.T-1]
+
+        # For the current time steps t = 1, ..., T-1
+        st_self_curr = self.state[self.self_idx, 1:self.T]
+
+        # For the velocity process, we use self.nu[t-1] for t=1,...,T-1.
+        # Reshape so that nu_x and nu_y have shape (1, T-1) and can broadcast over space.
+        nu_x = self.nu[:self.T-1, 0].reshape(1, -1)
+        nu_y = self.nu[:self.T-1, 1].reshape(1, -1)
+
+        # Compute the "A" term for all locations and time steps:
+        A = st_self_curr - st_self_prev \
+            - nu_x * (st_right_prev - st_left_prev) \
+            - nu_y * (st_down_prev - st_up_prev)
+
+        # Compute the "B" term:
+        B = st_left_prev + st_right_prev + st_up_prev + st_down_prev - 4.0 * st_self_prev
+
+        # The squared error at each (location, time):
+        sq_err = (A - beta * B) ** 2
+
+        # Sum over all spatial locations and time steps.
+        sse = np.sum(sq_err)
+
+        loglike = -sse / (2 * self.sigma_eta_sq)
         return loglike
 
     # ------------------------------------------------------------
     # PRIVATE METHOD: RWMH update for β during burn-in.
     # ------------------------------------------------------------
     def _sample_beta_rwmh(self, current_beta: float) -> float:
-        proposal = current_beta + np.random.normal(0, self._beta_proposal_sd)
+        proposal = current_beta + np.random.normal(0, np.sqrt(self._beta_proposal_var))
+        # Count each proposal
+        self._beta_trials += 1
         # Enforce support of Uniform(0, 0.25)
         if proposal <= 0 or proposal >= 0.25:
             return current_beta
@@ -126,6 +153,8 @@ class GibbsSampler:
         log_post_proposal = self._log_posterior_beta(proposal)
         acceptance_prob = min(1, np.exp(log_post_proposal - log_post_current))
         if np.random.rand() < acceptance_prob:
+            self._beta_accepted += 1
+            
             return proposal
         else:
             return current_beta
@@ -242,12 +271,21 @@ class GibbsSampler:
                     # Burn-in phase: update β via RWMH and collect samples.
                     self.beta = self._sample_beta_rwmh(self.beta)
                     self._beta_burn_in_samples.append(self.beta)
+                    # Calculate proposal parameters once when burn-in ends
+                    if iter == self.burn_in - 1:
+                        burn_in_array = np.array(self._beta_burn_in_samples)
+                        self._proposal_mu = burn_in_array.mean()
+                        self._proposal_var = burn_in_array.var()
+                        # Print acceptance rate and proposal parameters
+                        acceptance_rate = self._beta_accepted / self._beta_trials if self._beta_trials > 0 else 0.0
+                        print(f"Adaptive β sampling: Acceptance rate during burn-in: {acceptance_rate:.4f}")
+                        print(f"Adaptive β sampling: Proposal mu = {self._proposal_mu:.4f}, Proposal var = {self._proposal_var:.6f}")
+                        # Free memory
+                        del self._beta_burn_in_samples
                 else:
-                    # After burn-in: compute empirical mean/variance from burn-in samples
-                    burn_in_array = np.array(self._beta_burn_in_samples)
-                    mu_beta = burn_in_array.mean()
-                    var_beta = burn_in_array.var()
-                    self.beta = self._sample_beta_indep(self.beta, mu_beta, var_beta)
+                    # After burn-in: use pre-computed mean and variance
+                    # Sample β using independent proposal
+                    self.beta = self._sample_beta_indep(self.beta, self._proposal_mu, self._proposal_var)
             
             # Sample advection parameters (nu)
             # v_0

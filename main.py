@@ -43,9 +43,9 @@ def main():
     mcmc_init = get_mcmc_initializations(params, observations)
 
     # Burn-in, thinning and number of iterations for the Gibbs sampler
-    burn_in = 10
+    burn_in = 300
     thin = 2
-    iter = 20
+    iter = 350
 
     # Define fixed sigma values
     sigma_eta_sq = 0.01
@@ -59,7 +59,7 @@ def main():
         burn_in=burn_in,
         thin=thin,
         alpha_init=mcmc_init['alpha'],
-        beta_init=mcmc_init['beta'],
+        beta_init=0.01,
         sigma_eta_sq_init=sigma_eta_sq,
         sigma_nu_sq_init=mcmc_init['sigma_nu_sq'],
         sigma_epsilon_sq_init=sigma_epsilon_sq,
@@ -98,8 +98,7 @@ def main():
     }
 
     log_likelihood = {
-        'log_complete_samples': np.expand_dims(samples['log_complete_samples'], axis=0),
-        'log_obs_samples': np.expand_dims(samples['log_obs_samples'], axis=0),
+        'log_complete_samples': np.expand_dims(samples['log_complete_samples'], axis=0)
     }
 
     # Generate Prior Predictive Samples
@@ -187,30 +186,33 @@ def main():
         }
     )
     az.to_netcdf(idata_posterior, 'inference_data.nc')
+
+    # Print Posterior Summary
+    print(az.summary(idata_posterior.posterior, var_names=["alpha", "beta", "sigma_nu_sq"]))
     
-    # Save remaining groups in a separate InferenceData file
-    idata_extra = az.from_dict(
-        log_likelihood=log_likelihood,
-        prior=prior,
-        posterior_predictive=posterior_predictive,
-        prior_predictive=prior_predictive,
-        constant_data=constant_data,
-        coords={
-            "draw": coords["draw"],
-            "location": coords["location"],
-            "time_state": coords["time_state"],
-            "time_obs": coords["time_obs"],
-            "component": coords["component"]
-        },
-        dims={
-            "log_complete_samples": dims["log_complete_samples"],
-            "log_obs_samples": dims["log_obs_samples"],
-            "Z": dims["Z"],
-            "true_state": dims["true_state"],
-            "true_advection": dims["true_advection"]
-        }
-    )
-    az.to_netcdf(idata_extra, 'extra_data.nc')
+    # # Save remaining groups in a separate InferenceData file
+    # idata_extra = az.from_dict(
+    #     log_likelihood=log_likelihood,
+    #     prior=prior,
+    #     posterior_predictive=posterior_predictive,
+    #     prior_predictive=prior_predictive,
+    #     constant_data=constant_data,
+    #     coords={
+    #         "draw": coords["draw"],
+    #         "location": coords["location"],
+    #         "time_state": coords["time_state"],
+    #         "time_obs": coords["time_obs"],
+    #         "component": coords["component"]
+    #     },
+    #     dims={
+    #         "log_complete_samples": dims["log_complete_samples"],
+    #         "log_obs_samples": dims["log_obs_samples"],
+    #         "Z": dims["Z"],
+    #         "true_state": dims["true_state"],
+    #         "true_advection": dims["true_advection"]
+    #     }
+    # )
+    # az.to_netcdf(idata_extra, 'extra_data.nc')
 
 if __name__ == '__main__':
     main()
