@@ -6,6 +6,7 @@ from sampler.EnKS import EnKS_Optimized
 from tqdm import tqdm
 import gc
 import zarr
+from utils.logging_utils import setup_logger
 
 class GibbsSampler: 
     def __init__(self, 
@@ -27,6 +28,9 @@ class GibbsSampler:
                  fixed_sigmas: bool = False,
                  beta_sampling_method: str = "normal"
                  ) -> None:    # choose "normal" or "adaptive"
+        # Set up logger
+        self.logger = setup_logger("GibbsSampler", "logs/gibbs_sampler.log")
+        
         self.observations = observations
         self.neighbour_locs = neighbour_locs
         self.num_iterations = num_iterations
@@ -58,26 +62,26 @@ class GibbsSampler:
         # Option for sampling β:
         self.beta_sampling_method = beta_sampling_method  # "normal" or "adaptive"
         if self.beta_sampling_method == "adaptive":
-            _scale = 3  # scale for the proposal distribution
-            self._beta_proposal_var = _scale * 0.002  # fixed proposal std for RWMH during burn-in
+            _scale = 1  # scale for the proposal distribution
+            self._beta_proposal_var = _scale * 9.740275359702301e-08  # fixed proposal std for RWMH during burn-in
             self._beta_trials = 0         # count total proposals
             self._beta_accepted = 0       # count accepted proposals
             self._beta_burn_in_samples = []  # collect burn-in samples for β
 
-        print(f"Sampler initialized with:")
-        print(f"  - Number of iterations: {self.num_iterations}")
-        print(f"  - Burn-in: {self.burn_in}")
-        print(f"  - Thinning: {self.thin}")
-        print(f"  - Number of saved samples: {self.num_saved_samples}")
-        print(f"  - Number of observations: {self.N}")
-        print(f"  - Number of time steps: {self.T}")
-        print(f"  - Number of ensemble members: {self.N_ensemble}")
-        print(f"  - Smoothing window: {self.smoothing_window}")
-        print(f"  - Shapes of variables:")
-        print(f"    - observations: {self.observations.shape}")
-        print(f"    - neighbour_locs: {self.neighbour_locs.shape}")
-        print(f"    - nu: {self.nu.shape}")
-        print(f"    - state: {self.state.shape}")
+        self.logger.info("GibbsSampler initialized with:")
+        self.logger.info(f"  - Number of iterations: {self.num_iterations}")
+        self.logger.info(f"  - Burn-in: {self.burn_in}")
+        self.logger.info(f"  - Thinning: {self.thin}")
+        self.logger.info(f"  - Number of saved samples: {self.num_saved_samples}")
+        self.logger.info(f"  - Number of observations: {self.N}")
+        self.logger.info(f"  - Number of time steps: {self.T}")
+        self.logger.info(f"  - Number of ensemble members: {self.N_ensemble}")
+        self.logger.info(f"  - Smoothing window: {self.smoothing_window}")
+        self.logger.info(f"  - Shapes of variables:")
+        self.logger.info(f"    - observations: {self.observations.shape}")
+        self.logger.info(f"    - neighbour_locs: {self.neighbour_locs.shape}")
+        self.logger.info(f"    - nu: {self.nu.shape}")
+        self.logger.info(f"    - state: {self.state.shape}")
 
         # --- Data Augmentation for Missing Observations ---
         self.augmented_observations = observations.copy()
@@ -183,7 +187,10 @@ class GibbsSampler:
         """
         Runs the Gibbs sampling procedure, using zarr only for large arrays.
         """
+        self.logger.info("Starting Gibbs sampling")
+        
         # Initialize in-memory arrays for smaller parameters
+        self.logger.debug("Initializing sample storage arrays")
         alpha_samples = np.zeros(self.num_saved_samples, dtype=np.float32)
         beta_samples = np.zeros(self.num_saved_samples, dtype=np.float32)
         sigma_eta_sq_samples = np.zeros(self.num_saved_samples, dtype=np.float32)
@@ -205,7 +212,11 @@ class GibbsSampler:
         sample_idx = 0
         
         for iter in tqdm(range(self.num_iterations), desc="Gibbs Sampling Progress", unit="iteration"):
+            if iter % 100 == 0:
+                self.logger.debug(f"Iteration {iter}/{self.num_iterations}")
+            
             # Sample Y via EnKS_Optimized
+            self.logger.debug("Running EnKS optimization")
             Y_analysis = EnKS_Optimized(self.augmented_observations, 
                         self.neighbour_locs, 
                         self.N_ensemble, 
@@ -278,10 +289,11 @@ class GibbsSampler:
                         self._proposal_var = burn_in_array.var()
                         # Print acceptance rate and proposal parameters
                         acceptance_rate = self._beta_accepted / self._beta_trials if self._beta_trials > 0 else 0.0
-                        print(f"Adaptive β sampling: Acceptance rate during burn-in: {acceptance_rate:.4f}")
-                        print(f"Adaptive β sampling: Proposal mu = {self._proposal_mu:.4f}, Proposal var = {self._proposal_var:.6f}")
+                        self.logger.info(f"Adaptive β sampling: Acceptance rate during burn-in: {acceptance_rate:.4f}")
+                        self.logger.info(f"Adaptive β sampling: Proposal mu = {self._proposal_mu:.4f}, Proposal var = {self._proposal_var}")
                         # Free memory
                         del self._beta_burn_in_samples
+                        gc.collect()
                 else:
                     # After burn-in: use pre-computed mean and variance
                     # Sample β using independent proposal
@@ -366,6 +378,7 @@ class GibbsSampler:
             
             # Save samples after burn-in and thinning
             if iter >= self.burn_in and (iter - self.burn_in) % self.thin == 0:
+                self.logger.debug(f"Saving samples for iteration {iter}")
                 idx = sample_idx
                 # Save small arrays to memory
                 alpha_samples[idx] = self.alpha
@@ -384,6 +397,7 @@ class GibbsSampler:
             # Clean up temporary arrays and run garbage collection
             gc.collect()
         
+        self.logger.info("Gibbs sampling completed")
         # Return both in-memory samples and zarr paths
         result = {
             'alpha_samples': alpha_samples,
