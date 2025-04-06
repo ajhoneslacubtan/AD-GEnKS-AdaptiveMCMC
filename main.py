@@ -95,9 +95,9 @@ def main():
 
 
     # Burn-in, thinning and number of iterations for the Gibbs sampler
-    burn_in = 10
+    burn_in = 1000
     thin = 2
-    iter = 20
+    iter = 2000
 
     # Define fixed sigma values
     sigma_eta_sq = 0.01
@@ -238,7 +238,7 @@ def main():
             "observed_variable": dims["observed_variable"],
         }
     )
-    az.to_netcdf(idata_posterior, 'inference_data.nc')
+    az.to_netcdf(idata_posterior, 'inference_data_lag12.nc')
     logger.info("Results saved to inference_data.nc")
 
     # Print Posterior Summary
