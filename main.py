@@ -1,7 +1,8 @@
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 import zarr
 import numpy as np
 import arviz as az
-import pickle
 from utils.logging_utils import setup_logger
 
 from simulation import (
@@ -27,10 +28,15 @@ def main():
     # Initialize simulation parameters and priors
     logger.info("Initializing simulation parameters")
     params = initialize_simulation_params()
+    initial_state = np.load("data/train_t10.npy")
     # Modify the parameters for the Gibbs sampler
     params['N_ensemble'] = 100
     params['smoothing_window'] = 12
-    params['time_steps'] = 60
+    params['time_steps'] = 35
+    params['grid_size_x'] = initial_state.shape[0]
+    params['grid_size_y'] = initial_state.shape[1]
+    params['grid_shape'] = initial_state.shape
+    params['N'] = params['grid_size_x'] * params['grid_size_y']
     logger.debug(f"Parameters initialized: {params}")
     
     # Create neighbor locations matrix
@@ -41,19 +47,57 @@ def main():
                             burn_in_fraction=params['burn_in_fraction'])
     
     # Simulate the latent state evolution
+    
     state, nu = simulate_state(params['sigma_eta_sq'], nu, params['beta'], params['grid_shape'], 
-                           neighbour_locs, params['time_steps'], params['burn_in_fraction'])
+                           neighbour_locs, params['time_steps'], params['burn_in_fraction'],
+                           initial_state=initial_state)
     
     # Simulate the observations (data) by adding observation noise
-    observations = simulate_observations(state, params['sigma_epsilon_sq'], missing_rate=0.1)
+    observations = simulate_observations(state, params['sigma_epsilon_sq'], missing_rate=0.05)
     
     # Generate initializations for the Gibbs sampler
     mcmc_init = get_mcmc_initializations(params, observations)
 
+    # # Set up the plot for observations animation
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # # Compute min and max values for consistent colorbar scale, ignoring NaNs
+    # vmin = float(np.nanmin(observations))
+    # vmax = float(np.nanmax(observations))
+    
+    # # Initialize the plot with first frame
+    # im = ax.imshow(observations[:, 0].reshape(params['grid_shape']), 
+    #                origin='lower', cmap='viridis',
+    #                vmin=vmin, vmax=vmax)
+    
+    # # Add colorbar
+    # plt.colorbar(im, ax=ax)
+    # title = ax.set_title(f'Time step: 0')
+    
+    # # Animation update function
+    # def update(frame):
+    #     # Reshape the data for current frame
+    #     data_frame = observations[:, frame].reshape(params['grid_shape'])
+    #     im.set_data(data_frame)
+    #     title.set_text(f'Time step: {frame}')
+    #     return im, title
+    
+    # # Create animation
+    # ani = animation.FuncAnimation(fig, update, 
+    #                             frames=observations.shape[1],
+    #                             interval=200, # 200ms between frames
+    #                             blit=True)
+    
+    # # Save animation
+    # ani.save("observations_animation.gif", writer="pillow", fps=5)
+    # plt.close()
+    # logger.info("Saved observations animation as observations_animation.gif")
+
+
     # Burn-in, thinning and number of iterations for the Gibbs sampler
-    burn_in = 3000
+    burn_in = 10
     thin = 2
-    iter = 3800
+    iter = 20
 
     # Define fixed sigma values
     sigma_eta_sq = 0.01
@@ -77,7 +121,7 @@ def main():
         N_ensemble=params['N_ensemble'],
         smoothing_window=params['smoothing_window'],
         fixed_sigmas=True,
-        beta_sampling_method='adaptive'
+        beta_sampling_method='normal'
     )
 
     # Load the samples dictionary containing both in-memory and zarr paths

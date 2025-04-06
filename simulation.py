@@ -75,11 +75,12 @@ def create_neighbour_locs(grid_size_x: int, grid_size_y: int) -> np.ndarray:
 
 def simulate_state(sigma_eta_sq: float, nu: np.ndarray, beta: float, 
                    grid_shape: tuple, neighbour_locs: np.ndarray, 
-                   T_desired: int, burn_in_fraction: float = 0.5) -> np.ndarray:
+                   T_desired: int, burn_in_fraction: float = 0.5,
+                   initial_state: np.ndarray = None) -> np.ndarray:
     """
     Simulate latent states on a grid with periodic boundary conditions, including a burn-in period.
     
-    The initial state is generated from N(0, sigma_eta_sq). The simulation is run for
+    The initial state is generated from N(0, sigma_eta_sq) if not provided. The simulation is run for
     total_steps = T_desired + burn_in, where burn_in = burn_in_fraction * T_desired.
     The function returns the state trajectory from time 0 to T_desired (i.e., T_desired+1 states)
     after discarding the burn-in.
@@ -92,6 +93,8 @@ def simulate_state(sigma_eta_sq: float, nu: np.ndarray, beta: float,
         neighbour_locs (np.ndarray): Array of shape (N, 5) containing [index, left, right, up, down] for each grid point.
         T_desired (int): Desired number of time steps (not counting the initial state) after burn-in.
         burn_in_fraction (float): Fraction of T_desired to use as burn-in (default is 0.5).
+        initial_state (np.ndarray, optional): Initial state array of shape (grid_size_x, grid_size_y). 
+                                             If None, a random initial state is generated.
     
     Returns:
         np.ndarray: Array of shape (N, T_desired+1) containing the latent state trajectory.
@@ -104,7 +107,18 @@ def simulate_state(sigma_eta_sq: float, nu: np.ndarray, beta: float,
     
     # Allocate array for states from t = 0 to t = total_steps
     temp_state = np.zeros((N, total_steps + 1))
-    temp_state[:, 0] = np.random.normal(0, np.sqrt(sigma_eta_sq), size=N)
+    
+    # Set initial state
+    if initial_state is not None:
+        # Check if the initial_state has the correct shape
+        if initial_state.shape != (grid_size_x, grid_size_y):
+            raise ValueError(f"initial_state must have shape ({grid_size_x}, {grid_size_y}), "
+                            f"but got {initial_state.shape}")
+        # Reshape the initial state to match the format used in the function
+        temp_state[:, 0] = initial_state.reshape(N)
+    else:
+        # Generate random initial state if not provided
+        temp_state[:, 0] = np.random.normal(0, np.sqrt(sigma_eta_sq), size=N)
 
     # Extract neighbor indices
     # indices = neighbour_locs[:, 0].astype(int)
@@ -227,8 +241,8 @@ def initialize_simulation_params() -> dict:
             'sigma_epsilon_sq': 0.01 # If fixed, use this value for the observation error variance
         },
         'autoregression': {
-            'm_alpha': 0.5,
-            'v_alpha': 0.01,
+            'm_alpha': 0.8,
+            'v_alpha': 0.5,
         },
         'diffusion': {
             'm_beta': 0.125,

@@ -2,6 +2,8 @@ import xarray as xr
 import numpy as np
 import zarr
 import arviz as az
+import matplotlib.pylab as plt
+import matplotlib.animation as animation
 
 from simulation import (
     initialize_simulation_params,
@@ -12,22 +14,93 @@ from sampler.gibbs import GibbsSampler
 
 def main():
     # -------------------------------
-    # 1. Load and preprocess the real SPI data
+    # 1. Load and preprocess the real data
     # -------------------------------
-    ds = xr.open_dataset("data/mindanao_GSMaP_spi_gamma_1_month.nc")
-    spi = ds['spi_gamma_1_month']  # shape: (lat, lon, time) e.g., (63, 89, 325)
+    ds = xr.open_dataset('data/spatiotemporal_swr_mindanao.nc', engine="netcdf4", decode_times=True)
 
-    # Choose training period: t=240 to t=300 (Python indices 240:300 yields 60 time steps)
-    train_spi = spi.values[:, :, 240:300]   # shape: (63, 89, 60)
-    # Define test set: t=300 to t=325 (25 time steps)
-    test_spi  = spi.values[:, :, 300:325]     # shape: (63, 89, 25)
+    # Convert the time coordinate from UTC to Asia/Manila (UTC+8)
+    # This creates a timezone-aware DatetimeIndex.
+    time_local = ds.indexes['time'].tz_localize('UTC').tz_convert("Asia/Manila")
+    ds = ds.assign_coords(time=time_local)
 
-    grid_size_x, grid_size_y = train_spi.shape[:2]
+    # Define the train and test set time boundaries using timestamps (in Asia/Manila time)
+    # Train set: 8:00 AM to 2:00 PM PST on 2025-04-04
+    # Test set: 2:00 PM to 3:00 PM PST on 2025-04-04
+    train_start = "2025-04-04T08:00:00+08:00"
+    train_end   = "2025-04-04T14:00:00+08:00"
+    test_start  = "2025-04-04T14:00:00+08:00"
+    test_end    = "2025-04-04T15:00:00+08:00"
+
+    # Subset the dataset by time using the timestamps
+    train_set = ds.sel(time=slice(train_start, train_end))
+    test_set  = ds.sel(time=slice(test_start, test_end))
+
+    # select SWR directly as a DataArray
+    swr_train_da = train_set["SWR"].transpose("latitude", "longitude", "time")
+    swr_test_da  = test_set["SWR"].transpose("latitude", "longitude", "time")
+
+    # now .to_numpy() works because netCDF4 backend supports vindex
+    train = np.float64(swr_train_da.to_numpy())
+    test  = np.float64(swr_test_da.to_numpy())
+
+    grid_size_x, grid_size_y = train.shape[:2]
     N = grid_size_x * grid_size_y
 
     # Flatten spatial dimensions so that each row is one grid point
-    observations = train_spi.reshape((N, train_spi.shape[2]))  # shape: (N, 60)
-    test_observations = test_spi.reshape((N, test_spi.shape[2]))  # shape: (N, 25)
+    observations = train.reshape((N, train.shape[2]))  # shape: (N, T)
+    test_observations = test.reshape((N, test.shape[2]))  # shape: (N, T)
+
+    # Compute the min and max values for the SWR variable, ignoring NaNs
+    vmin = float(np.nanmin(observations))
+    vmax = float(np.nanmax(observations))
+
+    # Set up the plot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    # For each time frame, reshape the 1D column vector to the 2D grid (124, 176)
+    im = ax.imshow(observations[:, 0].reshape(124, 176), origin='lower',
+                cmap='viridis', vmin=vmin, vmax=vmax)
+    cb = fig.colorbar(im, ax=ax)
+    title = ax.set_title(str(observations[0]))
+
+    # Define the update function for the animation
+    def update(frame):
+        # Reshape the data for the current frame from (21824,) to (124, 176)
+        data_frame = observations[:, frame].reshape(124, 176)
+        im.set_data(data_frame)
+        return im, title
+
+    # Create the animation; adjust the interval (in milliseconds) as needed
+    ani = animation.FuncAnimation(fig, update, frames=observations.shape[1],
+                                interval=500, blit=True)
+
+    # Save the animation as a GIF using the pillow writer
+    ani.save("swr_animation_train.gif", writer="pillow", fps=2)
+    plt.close()
+    print("GIF saved as swr_animation_train.gif")
+
+    # Set up the plot for test set animation
+    fig, ax = plt.subplots(figsize=(8, 6))
+    # For each time frame, reshape the 1D column vector to the 2D grid (124, 176)
+    im = ax.imshow(test_observations[:, 0].reshape(124, 176), origin='lower',
+                cmap='viridis', vmin=vmin, vmax=vmax)
+    cb = fig.colorbar(im, ax=ax)
+    title = ax.set_title(str(test_observations[0]))
+
+    # Define the update function for the test animation
+    def update(frame):
+        # Reshape the data for the current frame from (21824,) to (124, 176)
+        data_frame = test_observations[:, frame].reshape(124, 176)
+        im.set_data(data_frame)
+        return im, title
+
+    # Create the animation; adjust the interval (in milliseconds) as needed
+    ani = animation.FuncAnimation(fig, update, frames=test_observations.shape[1],
+                                interval=500, blit=True)
+
+    # Save the animation as a GIF using the pillow writer
+    ani.save("swr_animation_test.gif", writer="pillow", fps=2)
+    plt.close()
+    print("GIF saved as swr_animation_test.gif")
 
     # -------------------------------
     # 2. Configure the Gibbs sampler settings
@@ -52,9 +125,9 @@ def main():
     # 3. Initialize and run the Gibbs sampler
     # -------------------------------
     # Adjust sampler settings as desired (number of iterations, burn-in, thinning)
-    burn_in = 2800
+    burn_in = 1000
     thin = 2
-    num_iterations = 4000
+    num_iterations = 2000
 
     # For this example, we let the sampler update sigma_eta_sq and sigma_epsilon_sq.
     sigma_eta_sq = mcmc_init['sigma_eta_sq']
@@ -147,7 +220,7 @@ def main():
         dims={
             "alpha": dims["alpha"],
             "beta": dims["beta"],
-            "sigma_epsilon_sq": dims["sigma_epsilon_sq"],
+            "sigma_nu_sq": dims["sigma_nu_sq"],
             "nu": dims["nu"],
             "state": dims["state"],
             "observed_variable": dims["observed_variable"],
@@ -155,7 +228,7 @@ def main():
             "log_complete_samples": dims["log_complete_samples"]
         }
     )
-    az.to_netcdf(idata_posterior, 'real_inference_data_gibbs_spi1.nc')
+    az.to_netcdf(idata_posterior, 'real_inference_data_gibbs_swr.nc')
     
     print("Real data analysis completed successfully!")
 

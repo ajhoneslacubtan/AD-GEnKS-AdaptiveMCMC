@@ -4,7 +4,10 @@ __pycache__/
 .venv/
 logs/
 .vscode/
-*.nc
 *.pickle
 *.pkl
 gibbs_results.zarr/
+# Ignore all .nc files
+*.nc
+# But keep spatiotemporal_swr_mindanao.nc
+!spatiotemporal_swr_mindanao.nc
