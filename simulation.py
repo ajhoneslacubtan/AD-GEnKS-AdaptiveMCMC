@@ -20,7 +20,7 @@ where ε ~ N(0, sigma_eta_sq).
 
 import numpy as np
 
-def simulate_advection(alpha: float, sigma_nu_sq: float, T_desired: int, burn_in_fraction: float = 0.5) -> np.ndarray:
+def simulate_advection(alpha: float, sigma_nu_sq: float, T_desired: int, burn_in_fraction: float = 0.5, initial_mean: np.ndarray = None) -> np.ndarray:
     """
     Simulate advection parameters using an autoregressive process over a time horizon that includes burn-in.
     
@@ -36,6 +36,8 @@ def simulate_advection(alpha: float, sigma_nu_sq: float, T_desired: int, burn_in
         sigma_nu_sq (float): Variance for the advection noise.
         T_desired (int): Number of desired time steps (after discarding burn-in).
         burn_in_fraction (float): Fraction of T_desired to use as burn-in.
+        initial_mean (np.ndarray, optional): Initial mean vector of shape (2,) for nu[0].
+                                           If None, uses zero vector.
     
     Returns:
         np.ndarray: Array of shape (total_steps+1, 2) with simulated advection values.
@@ -45,7 +47,9 @@ def simulate_advection(alpha: float, sigma_nu_sq: float, T_desired: int, burn_in
     total_steps = T_desired + burn_in
 
     nu = np.zeros((total_steps + 1, 2))
-    nu[0, :] = np.random.multivariate_normal(mean=np.zeros(2), cov= sigma_nu_sq * np.eye(2))
+    if initial_mean is None:
+        initial_mean = np.zeros(2)
+    nu[0, :] = np.random.multivariate_normal(mean=initial_mean, cov=sigma_nu_sq * np.eye(2))
     for t in range(1, total_steps + 1):
         omega_t = np.random.multivariate_normal(mean=np.zeros(2), cov=sigma_nu_sq * np.eye(2))
         nu[t, :] = alpha * nu[t - 1, :] + omega_t

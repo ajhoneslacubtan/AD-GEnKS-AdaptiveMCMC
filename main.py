@@ -40,9 +40,9 @@ def main():
     params['beta'] = 0.2
     params['alpha'] = 0.8
     params['sigma_nu_sq'] = 0.01
-    params['sigma_eta_sq'] = 225
-    params['sigma_epsilon_sq'] = 800
-
+    params['sigma_eta_sq'] = 225.0
+    params['sigma_epsilon_sq'] = 800.0
+    initial_nu_mean = np.array([0.2, 0.0])
 
     logger.debug(f"Parameters initialized: {params}")
     
@@ -51,7 +51,9 @@ def main():
     
     # Simulate advection parameters using an AR(1) process
     nu = simulate_advection(params['alpha'], params['sigma_nu_sq'], params['time_steps'], 
-                            burn_in_fraction=params['burn_in_fraction'])
+                            burn_in_fraction=params['burn_in_fraction'], initial_mean=initial_nu_mean)
+    logger.info(f"Advection params (nu) shape: {nu.shape}")
+    logger.info(f"Advection params (nu) min: {nu.min()}, max: {nu.max()}")
     
     # Simulate the latent state evolution
     
@@ -60,7 +62,7 @@ def main():
                            initial_state=initial_state)
     
     # Simulate the observations (data) by adding observation noise
-    observations = simulate_observations(state, params['sigma_epsilon_sq'], missing_rate=0.05)
+    observations = simulate_observations(state, params['sigma_epsilon_sq'], missing_rate=0.001)
     
     # Generate initializations for the Gibbs sampler
     mcmc_init = get_mcmc_initializations(params, observations)
@@ -96,7 +98,7 @@ def main():
     #                             blit=True)
     
     # # Save animation
-    # ani.save("observations_animation.gif", writer="pillow", fps=5)
+    # ani.save("observations_animation.gif", writer="pillow", fps=2)
     # plt.close()
     # logger.info("Saved observations animation as observations_animation.gif")
 
