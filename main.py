@@ -31,12 +31,19 @@ def main():
     initial_state = np.load("data/train_t10.npy")
     # Modify the parameters for the Gibbs sampler
     params['N_ensemble'] = 100
-    params['smoothing_window'] = 12
+    params['smoothing_window'] = 6
     params['time_steps'] = 35
     params['grid_size_x'] = initial_state.shape[0]
     params['grid_size_y'] = initial_state.shape[1]
     params['grid_shape'] = initial_state.shape
     params['N'] = params['grid_size_x'] * params['grid_size_y']
+    params['beta'] = 0.2
+    params['alpha'] = 0.8
+    params['sigma_nu_sq'] = 0.01
+    params['sigma_eta_sq'] = 225
+    params['sigma_epsilon_sq'] = 800
+
+
     logger.debug(f"Parameters initialized: {params}")
     
     # Create neighbor locations matrix
@@ -99,10 +106,6 @@ def main():
     thin = 2
     iter = 2000
 
-    # Define fixed sigma values
-    sigma_eta_sq = 0.01
-    sigma_epsilon_sq = 0.01
-
     # Initialize the Gibbs sampler with fixed sigmas
     gibbs_sampler = GibbsSampler(
         observations=observations,
@@ -111,10 +114,10 @@ def main():
         burn_in=burn_in,
         thin=thin,
         alpha_init=mcmc_init['alpha'],
-        beta_init=0.000001,
-        sigma_eta_sq_init=sigma_eta_sq,
-        sigma_nu_sq_init=mcmc_init['sigma_nu_sq'],
-        sigma_epsilon_sq_init=sigma_epsilon_sq,
+        beta_init=mcmc_init['beta'],
+        sigma_eta_sq_init=params['sigma_eta_sq'],
+        sigma_nu_sq_init=params['sigma_nu_sq'],
+        sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],
         prior_params=params['prior_params'],
@@ -180,8 +183,8 @@ def main():
     }
 
     constant_data = {
-        'true_state': state,
-        'true_advection': nu.T
+        # 'true_state': state,
+        'true_nu': nu.T
     }
 
     # Create coords and dims dictionaries
@@ -210,17 +213,15 @@ def main():
         "log_obs_samples": ["draw"],
         "Z": ["draw", "location", "time_obs"],
         "observed_variable": ["location", "time_obs"],
-        "true_state": ["location", "time_state"],
-        "true_advection": ["component", "time_state"]
+        "true_nu": ["component", "time_state"]
     }
-
-    # (After creating coords and dims dictionaries)
     
     # Save posterior samples and observations as InferenceData
     logger.info("Saving posterior samples and observations")
     idata_posterior = az.from_dict(
         posterior=posterior,
         observed_data=observed_data,
+        constant_data=constant_data,
         coords={
             "draw": coords["draw"],
             "location": coords["location"],
@@ -236,9 +237,10 @@ def main():
             "nu": dims["nu"],
             "state": dims["state"],
             "observed_variable": dims["observed_variable"],
+            "true_nu": dims["true_nu"],
         }
     )
-    az.to_netcdf(idata_posterior, 'inference_data_lag12.nc')
+    az.to_netcdf(idata_posterior, 'inference_data_lag6.nc')
     logger.info("Results saved to inference_data.nc")
 
     # Print Posterior Summary
