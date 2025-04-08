@@ -8,3 +8,4 @@ logs/
 *.pickle
 *.pkl
 gibbs_results.zarr/
+!spatiotemporal_swr_mindanao.nc
