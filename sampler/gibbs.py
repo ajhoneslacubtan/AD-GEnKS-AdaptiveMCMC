@@ -314,14 +314,14 @@ class GibbsSampler:
                 b_epsilon = self.prior_params['observation']['b_epsilon'] + 0.5 * np.sum(residuals_epsilon)
                 self.sigma_epsilon_sq = invgamma.rvs(a_epsilon, scale=b_epsilon)
             
-            # Sample σ²_ν
-            residuals_nu = []
-            for t in range(1, self.T):
-                residuals_nu_t = self.nu[t] - self.alpha * self.nu[t - 1]
-                residuals_nu.append(residuals_nu_t.T @ residuals_nu_t)
-            a_nu = self.prior_params['advection']['a_nu'] + (self.T - 1)
-            b_nu = self.prior_params['advection']['b_nu'] + 0.5 * np.sum(residuals_nu)
-            self.sigma_nu_sq = invgamma.rvs(a=a_nu, scale=b_nu)
+                # Sample σ²_ν
+                residuals_nu = []
+                for t in range(1, self.T):
+                    residuals_nu_t = self.nu[t] - self.alpha * self.nu[t - 1]
+                    residuals_nu.append(residuals_nu_t.T @ residuals_nu_t)
+                a_nu = self.prior_params['advection']['a_nu'] + (self.T - 1)
+                b_nu = self.prior_params['advection']['b_nu'] + 0.5 * np.sum(residuals_nu)
+                self.sigma_nu_sq = invgamma.rvs(a=a_nu, scale=b_nu) 
             
             # Compute log likelihoods
             log_complete = -0.5 * self.N * self.T * np.log(2 * np.pi * self.sigma_epsilon_sq)
