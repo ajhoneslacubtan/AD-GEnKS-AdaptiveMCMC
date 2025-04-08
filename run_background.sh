@@ -10,7 +10,7 @@ LOG_FILE="logs/sample_${TIMESTAMP}.log"
 # Run the Python script in the background with nohup
 # Redirect both stdout and stderr to the log file
 # The & at the end runs it in the background
-nohup python run_real_data.py > "${LOG_FILE}" 2>&1 &
+nohup python main.py > "${LOG_FILE}" 2>&1 &
 
 # Save the process ID to a file for later reference
 echo $! > logs/sample_${TIMESTAMP}.pid
