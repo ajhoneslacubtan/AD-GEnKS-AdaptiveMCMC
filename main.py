@@ -14,7 +14,6 @@ from simulation import (
     get_mcmc_initializations
 )
 from sampler.gibbs import GibbsSampler
-from sampler.predictive_distributions import generate_posterior_predictive, generate_prior_predictive
 
 def main():
     # Set up logging
@@ -28,20 +27,21 @@ def main():
     # Initialize simulation parameters and priors
     logger.info("Initializing simulation parameters")
     params = initialize_simulation_params()
-    initial_state = np.load("data/train_t10.npy")
+    
     # Modify the parameters for the Gibbs sampler
     params['N_ensemble'] = 100
     params['smoothing_window'] = 6
     params['time_steps'] = 35
-    params['grid_size_x'] = initial_state.shape[0]
-    params['grid_size_y'] = initial_state.shape[1]
-    params['grid_shape'] = initial_state.shape
-    params['N'] = params['grid_size_x'] * params['grid_size_y']
     params['beta'] = 0.2
     params['alpha'] = 0.8
     params['sigma_nu_sq'] = 0.01
     params['sigma_eta_sq'] = 225.0
-    params['sigma_epsilon_sq'] = 800.0
+    params['sigma_epsilon_sq'] = 600.0
+    params['grid_size_x'] = 124
+    params['grid_size_y'] = 176
+    params['grid_shape'] = (params['grid_size_x'], params['grid_size_y'])
+    params['N'] = params['grid_size_x'] * params['grid_size_y']
+    initial_state = np.random.normal(400, np.sqrt(params['sigma_eta_sq']), params['grid_shape'])
     initial_nu_mean = np.array([0.2, 0.0])
 
     logger.debug(f"Parameters initialized: {params}")
@@ -66,6 +66,7 @@ def main():
     
     # Generate initializations for the Gibbs sampler
     mcmc_init = get_mcmc_initializations(params, observations)
+    mcmc_init['state'] = np.random.normal(400, np.sqrt(params['sigma_eta_sq']), (params['N'], params['time_steps'] + 1))
 
     # # Set up the plot for observations animation
     # fig, ax = plt.subplots(figsize=(8, 6))
@@ -158,27 +159,6 @@ def main():
         'log_complete_samples': np.expand_dims(samples['log_complete_samples'], axis=0)
     }
 
-    # Generate Prior Predictive Samples
-    num_samples = samples['alpha_samples'].shape[0] 
-    prior_samples = generate_prior_predictive(num_samples, params, params['prior_params'], neighbour_locs)
-    prior = {
-        'alpha': np.expand_dims(prior_samples['alpha_samples'], axis=0),
-        'beta': np.expand_dims(prior_samples['beta_samples'], axis=0),
-        'sigma_nu_sq': np.expand_dims(prior_samples['sigma_nu_sq_samples'], axis=0),
-        'sigma_eta_sq': np.expand_dims(prior_samples['sigma_eta_sq_samples'], axis=0),
-        'sigma_epsilon_sq': np.expand_dims(prior_samples['sigma_epsilon_sq_samples'], axis=0),
-        'nu': np.expand_dims(np.transpose(prior_samples['nu_samples'], (2, 0, 1)), axis=0),
-        'state': np.expand_dims(np.transpose(prior_samples['Y_samples'], (2, 0, 1)), axis=0)
-    }
-    
-    predictive_Z = prior_samples.pop('predictive_samples')
-    predictive_Z = np.expand_dims(np.transpose(predictive_Z, (2, 0, 1)), axis=0)
-    prior_predictive = {'Z': predictive_Z}
-
-    # Posterior Predictive Samples
-    ppd = generate_posterior_predictive(samples['Y_samples'], samples['sigma_epsilon_sq_samples'])
-    posterior_predictive = {'Z': np.expand_dims(np.transpose(ppd, (2, 0, 1)), axis=0)}
-
     # Create observed_data and constant_data dictionaries
     observed_data = {
         'observed_variable': observations  # Replace 'observed_variable' with your variable name
@@ -193,7 +173,7 @@ def main():
     num_draws = samples['alpha_samples'].shape[0]
     N = samples['Y_samples'].shape[0]
     T_state = samples['Y_samples'].shape[1]
-    T_obs = ppd.shape[1]
+    T_obs = T_state-1
     
     coords = {
         "draw": np.arange(num_draws),
@@ -212,23 +192,21 @@ def main():
         "nu": ["draw", "component", "time_state"],
         "state": ["draw", "location", "time_state"],
         "log_complete_samples": ["draw"],
-        "log_obs_samples": ["draw"],
         "Z": ["draw", "location", "time_obs"],
         "observed_variable": ["location", "time_obs"],
         "true_nu": ["component", "time_state"]
     }
     
-    # Save posterior samples and observations as InferenceData
-    logger.info("Saving posterior samples and observations")
+    # Save posterior samples as InferenceData with smoothing window in filename
+    smoothing_window = params['smoothing_window']
+    posterior_filename = f"posterior_sw_{smoothing_window}.nc"
+    logger.info(f"Saving posterior samples to {posterior_filename}")
     idata_posterior = az.from_dict(
         posterior=posterior,
-        observed_data=observed_data,
-        constant_data=constant_data,
         coords={
             "draw": coords["draw"],
             "location": coords["location"],
-            "time_state": coords["time_state"],
-            "time_obs": coords["time_obs"]
+            "time_state": coords["time_state"]
         },
         dims={
             "alpha": dims["alpha"],
@@ -238,16 +216,34 @@ def main():
             "sigma_epsilon_sq": dims["sigma_epsilon_sq"],
             "nu": dims["nu"],
             "state": dims["state"],
-            "observed_variable": dims["observed_variable"],
-            "true_nu": dims["true_nu"],
+            "log_complete_samples": dims["log_complete_samples"],
         }
     )
-    az.to_netcdf(idata_posterior, 'inference_data_lag6.nc')
-    logger.info("Results saved to inference_data.nc")
+    az.to_netcdf(idata_posterior, posterior_filename)
+    logger.info(f"Posterior samples saved to '{posterior_filename}'")
+
+    # Save the remaining data (observed, constant, likelihood) as InferenceData with smoothing window in filename
+    rest_filename = f"inference_data_rest_sw_{smoothing_window}.nc"
+    logger.info(f"Saving observed and constant data to {rest_filename}")
+    idata_rest = az.from_dict(
+        observed_data=observed_data,
+        constant_data=constant_data,
+        log_likelihood=log_likelihood,
+        coords={
+            "location": coords["location"],
+            "time_obs": coords["time_obs"]
+        },
+        dims={
+            "observed_variable": dims["observed_variable"],
+            "true_nu": dims["true_nu"]
+        }
+    )
+    az.to_netcdf(idata_rest, rest_filename)
+    logger.info(f"Remaining data saved to '{rest_filename}'")
 
     # Print Posterior Summary
     logger.info("Generating posterior summary")
-    summary = az.summary(idata_posterior.posterior, var_names=["alpha", "beta", "sigma_nu_sq"])
+    summary = az.summary(idata_posterior.posterior, var_names=["alpha", "beta"])
     print(summary)
     logger.info("Simulation completed successfully!")
 

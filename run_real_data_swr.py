@@ -4,6 +4,7 @@ import zarr
 import arviz as az
 import matplotlib.pylab as plt
 import matplotlib.animation as animation
+from utils.logging_utils import setup_logger  # Add this import
 
 from simulation import (
     initialize_simulation_params,
@@ -13,6 +14,14 @@ from simulation import (
 from sampler.gibbs import GibbsSampler
 
 def main():
+    # Set up logging
+    logger = setup_logger("MCMC_Real", "logs/mcmc_real.log")
+    logger.info("Starting MCMC analysis for real data")
+    
+    # Set random seed for reproducibility
+    np.random.seed(42)
+    logger.info("Random seed set to 42")
+
     # -------------------------------
     # 1. Load and preprocess the real data
     # -------------------------------
@@ -114,12 +123,18 @@ def main():
     # Set time steps based on the training observations (note: observations are from t=1,...,T; initial state is unobserved)
     params['time_steps'] = observations.shape[1]  # T = 60 for training set
     params['smoothing_window'] = 6
+    params['sigma_nu_sq'] = 0.01 # Fixed
+    params['sigma_eta_sq'] = 225.0 # Fixed
+    params['sigma_epsilon_sq'] = 800.0 # Fixed
+    params['prior_params']['advection']['mean_nu_x_zero'] = 0.2 # a priori
+    params['prior_params']['advection']['mean_nu_x_zero'] = 0.0 # a priori
 
     # Create neighbor index array
     neighbour_locs = create_neighbour_locs(grid_size_x, grid_size_y)  # shape: (N, 5)
 
     # Generate initializations for the Gibbs sampler, using the training observations
     mcmc_init = get_mcmc_initializations(params, observations)
+    mcmc_init['state'] = np.random.normal(400, np.sqrt(params['sigma_eta_sq']), (params['N'], params['time_steps'] + 1))
 
     # -------------------------------
     # 3. Initialize and run the Gibbs sampler
@@ -129,9 +144,7 @@ def main():
     thin = 2
     num_iterations = 2000
 
-    # For this example, we let the sampler update sigma_eta_sq and sigma_epsilon_sq.
-    sigma_eta_sq = mcmc_init['sigma_eta_sq']
-    sigma_epsilon_sq = mcmc_init['sigma_epsilon_sq']
+    # Fixed Sigma
 
     gibbs_sampler = GibbsSampler(
         observations=observations,
@@ -140,10 +153,10 @@ def main():
         burn_in=burn_in,
         thin=thin,
         alpha_init=mcmc_init['alpha'],
-        beta_init=0.000001,
-        sigma_eta_sq_init=sigma_eta_sq,
-        sigma_nu_sq_init=mcmc_init['sigma_nu_sq'],
-        sigma_epsilon_sq_init=sigma_epsilon_sq,
+        beta_init=0.1,
+        sigma_eta_sq_init=params['sigma_eta_sq'],
+        sigma_nu_sq_init=params['sigma_nu_sq'],
+        sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],
         prior_params=params['prior_params'],
@@ -161,25 +174,24 @@ def main():
         'Y_samples': store['Y_samples'][:],
         'nu_samples': store['nu_samples'][:]
     })
-    if 'forecast_states' in store:
-        samples.update({
-            'forecast_states': store['forecast_states'][:],
-            'forecast_observations': store['forecast_observations'][:]
-        })
 
     # -------------------------------
-    # 4. Build InferenceData and save results (posterior only in this example)
+    # 4. Build InferenceData and save results
     # -------------------------------
     posterior = {
         'alpha': np.expand_dims(samples['alpha_samples'], axis=0),
         'beta': np.expand_dims(samples['beta_samples'], axis=0),
-        'sigma_nu_sq': np.expand_dims(samples['sigma_nu_sq_samples'], axis=0),
         'nu': np.expand_dims(np.transpose(samples['nu_samples'], (2, 0, 1)), axis=0),
         'state': np.expand_dims(np.transpose(samples['Y_samples'], (2, 0, 1)), axis=0)
     }
 
     log_likelihood = {
         'log_complete_samples': np.expand_dims(samples['log_complete_samples'], axis=0)
+    }
+
+    observed_data = {
+        'observed_variable': observations,
+        'observed_test': test_observations
     }
 
     coords = {
@@ -204,10 +216,7 @@ def main():
 
     idata_posterior = az.from_dict(
         posterior=posterior,
-        observed_data={
-            'observed_variable': observations,
-            'observed_test': test_observations
-        },
+        observed_data=observed_data,
         log_likelihood=log_likelihood,
         coords={
             "draw": coords["draw"],
@@ -230,7 +239,63 @@ def main():
     )
     az.to_netcdf(idata_posterior, 'real_inference_data_gibbs_swr.nc')
     
-    print("Real data analysis completed successfully!")
+    # ====================
+    # Save posterior samples separately
+    # ====================
+    posterior = {
+        'alpha': np.expand_dims(samples['alpha_samples'], axis=0),
+        'beta': np.expand_dims(samples['beta_samples'], axis=0),
+        'nu': np.expand_dims(np.transpose(samples['nu_samples'], (2, 0, 1)), axis=0),
+        'state': np.expand_dims(np.transpose(samples['Y_samples'], (2, 0, 1)), axis=0)
+    }
+
+    # Save posterior samples with smoothing window in filename
+    smoothing_window = params['smoothing_window']
+    posterior_filename = f"real_posterior_sw_{smoothing_window}.nc"
+    idata_posterior = az.from_dict(
+        posterior=posterior,
+        coords={
+            "draw": coords["draw"],
+            "location": coords["location"],
+            "time_state": coords["time_state"],
+            "component": coords["component"]
+        },
+        dims={
+            "alpha": dims["alpha"],
+            "beta": dims["beta"],
+            "nu": dims["nu"],
+            "state": dims["state"],
+        }
+    )
+    az.to_netcdf(idata_posterior, posterior_filename)
+    print(f"Posterior samples saved to '{posterior_filename}'")
+
+    # ====================
+    # Save observed data, log likelihood separately
+    # ====================
+    rest_filename = f"real_inference_data_rest_sw_{smoothing_window}.nc"
+    idata_rest = az.from_dict(
+        observed_data=observed_data,
+        log_likelihood=log_likelihood,
+        coords={
+            "location": coords["location"],
+            "time_obs": coords["time_obs"],
+            "test_time_obs": coords["test_time_obs"]
+        },
+        dims={
+            "observed_variable": dims["observed_variable"],
+            "observed_test": dims["observed_test"],
+            "log_complete_samples": dims["log_complete_samples"]
+        }
+    )
+    az.to_netcdf(idata_rest, rest_filename)
+    print(f"Remaining data saved to '{rest_filename}'")
+    
+    # After saving all data, add posterior summary
+    logger.info("Generating posterior summary")
+    summary = az.summary(idata_posterior.posterior, var_names=["alpha", "beta"])
+    print(summary)
+    logger.info("Real data analysis completed successfully!")
 
 if __name__ == '__main__':
     main()
