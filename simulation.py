@@ -190,8 +190,8 @@ def initialize_simulation_params() -> dict:
     # Domain settings (with corrected grid spacing to match "10 km" spacing)
     params['dx'] = 10000.0  # 10 km (in meters)
     params['dy'] = 10000.0  # 10 km (in meters)
-    params['grid_size_x'] = 124
-    params['grid_size_y'] = 176
+    params['grid_size_x'] = 15
+    params['grid_size_y'] = 15
     params['grid_shape'] = (params['grid_size_x'], params['grid_size_y'])
     params['N'] = params['grid_size_x'] * params['grid_size_y']
     

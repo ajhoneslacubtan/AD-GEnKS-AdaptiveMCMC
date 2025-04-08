@@ -37,19 +37,15 @@ def main():
                            neighbour_locs, params['time_steps'], params['burn_in_fraction'])
     
     # Simulate the observations (data) by adding observation noise
-    observations = simulate_observations(state, params['sigma_epsilon_sq'], missing_rate=0.1)
+    observations = simulate_observations(state, params['sigma_epsilon_sq'], missing_rate=0.05)
     
     # Generate initializations for the Gibbs sampler
     mcmc_init = get_mcmc_initializations(params, observations)
 
     # Burn-in, thinning and number of iterations for the Gibbs sampler
-    burn_in = 1000
+    burn_in = 1200
     thin = 2
-    iter = 2000
-
-    # Define fixed sigma values
-    sigma_eta_sq = 0.01
-    sigma_epsilon_sq = 0.01
+    iter = 2200
 
     # Initialize the Gibbs sampler with fixed sigmas
     gibbs_sampler = GibbsSampler(
@@ -60,9 +56,9 @@ def main():
         thin=thin,
         alpha_init=mcmc_init['alpha'],
         beta_init=mcmc_init['beta'],
-        sigma_eta_sq_init=sigma_eta_sq,
+        sigma_eta_sq_init=params['sigma_eta_sq'],
         sigma_nu_sq_init=mcmc_init['sigma_nu_sq'],
-        sigma_epsilon_sq_init=sigma_epsilon_sq,
+        sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],
         prior_params=params['prior_params'],
