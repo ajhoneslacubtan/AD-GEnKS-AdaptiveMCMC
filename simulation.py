@@ -202,8 +202,8 @@ def initialize_simulation_params() -> dict:
     params['alpha'] = 0.6          # True autoregression coefficient
     params['beta'] = 0.2         # True diffusion coefficient
     params['sigma_nu_sq'] = 0.01    # True advection error variance
-    params['sigma_eta_sq'] = 225.0    # True process error variance
-    params['sigma_epsilon_sq'] = 600.0 # True observation error variance
+    params['sigma_eta_sq'] = 20.0    # True process error variance
+    params['sigma_epsilon_sq'] = 50.0 # True observation error variance
     
     # Prior hyperparameters for the MCMC initialization
     params['prior_params'] = {
