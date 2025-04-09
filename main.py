@@ -20,7 +20,7 @@ def main():
     params = initialize_simulation_params()
     # Modify the parameters for the Gibbs sampler
     params['N_ensemble'] = 100
-    params['smoothing_window'] = 6
+    params['smoothing_window'] = 12
     params['time_steps'] = 35
     params["prior_params"]['process']['m_state'] = 400
     params["prior_params"]['process']['v_state'] = 200
