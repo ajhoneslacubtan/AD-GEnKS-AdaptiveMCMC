@@ -210,7 +210,7 @@ def initialize_simulation_params() -> dict:
         'advection': {
             'mean_nu_x_zero': 0.0,
             'mean_nu_y_zero': 0.0,
-            'var_nu_zero': 0.01,
+            'var_nu_zero': 0.001,
             'a_nu': 10,
             'b_nu': 6
         },
