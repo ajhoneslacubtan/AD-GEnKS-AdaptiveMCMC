@@ -104,7 +104,7 @@ def simulate_state(sigma_eta_sq: float, nu: np.ndarray, beta: float,
     
     # Allocate array for states from t = 0 to t = total_steps
     temp_state = np.zeros((N, total_steps + 1))
-    temp_state[:, 0] = np.random.normal(0, np.sqrt(sigma_eta_sq), size=N)
+    temp_state[:, 0] = np.random.normal(500, np.sqrt(sigma_eta_sq), size=N)
 
     # Extract neighbor indices
     # indices = neighbour_locs[:, 0].astype(int)
@@ -190,8 +190,8 @@ def initialize_simulation_params() -> dict:
     # Domain settings (with corrected grid spacing to match "10 km" spacing)
     params['dx'] = 10000.0  # 10 km (in meters)
     params['dy'] = 10000.0  # 10 km (in meters)
-    params['grid_size_x'] = 124
-    params['grid_size_y'] = 176
+    params['grid_size_x'] = 15
+    params['grid_size_y'] = 15
     params['grid_shape'] = (params['grid_size_x'], params['grid_size_y'])
     params['N'] = params['grid_size_x'] * params['grid_size_y']
     
@@ -202,8 +202,8 @@ def initialize_simulation_params() -> dict:
     params['alpha'] = 0.6          # True autoregression coefficient
     params['beta'] = 0.2         # True diffusion coefficient
     params['sigma_nu_sq'] = 0.01    # True advection error variance
-    params['sigma_eta_sq'] = 20.0    # True process error variance
-    params['sigma_epsilon_sq'] = 50.0 # True observation error variance
+    params['sigma_eta_sq'] = 800.0   # True process error variance
+    params['sigma_epsilon_sq'] = 1000.0 # True observation error variance
     
     # Prior hyperparameters for the MCMC initialization
     params['prior_params'] = {
@@ -215,16 +215,12 @@ def initialize_simulation_params() -> dict:
             'b_nu': 6
         },
         'process': {
-            'm_state': 0,
-            'v_state': 1.0,
             'a_eta': 5.0,
-            'b_eta': 0.1,
-            'sigma_eta_sq': 0.01 # If fixed, use this value for the process error variance
+            'b_eta': 0.1
         },
         'observation': {
             'a_epsilon': 5.0,
-            'b_epsilon': 0.1,
-            'sigma_epsilon_sq': 0.01 # If fixed, use this value for the observation error variance
+            'b_epsilon': 0.1
         },
         'autoregression': {
             'm_alpha': 0.5,
@@ -235,8 +231,8 @@ def initialize_simulation_params() -> dict:
             'v_beta': 0.001736
         },
         'initial_state': {
-            'm_state': 0.2, # mean of the initial state
-            'v_state': 1.0 # variance of the initial state
+            'm_state': 600.0, # mean of the initial state
+            'v_state': 700.0 # variance of the initial state
         }
     }
     
@@ -276,33 +272,33 @@ def get_mcmc_initializations(params: dict, observations: np.ndarray = None) -> d
     nu_init[0, 0] = np.random.normal(prior_params['advection']['mean_nu_x_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
     nu_init[1, 0] = np.random.normal(prior_params['advection']['mean_nu_y_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
     for t in range(1, time_steps+1):
-        nu_init[0, t] = init['alpha'] * nu_init[0, t - 1] + np.random.normal(prior_params['advection']['mean_nu_y_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
+        nu_init[0, t] = init['alpha'] * nu_init[0, t - 1] + np.random.normal(prior_params['advection']['mean_nu_x_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
         nu_init[1, t] = init['alpha'] * nu_init[1, t - 1] + np.random.normal(prior_params['advection']['mean_nu_y_zero'], np.sqrt(prior_params['advection']['var_nu_zero']))
     init['nu'] = nu_init.T  # shape: (time_steps, 2)
 
     init['sigma_nu_sq'] = np.random.gamma(prior_params['advection']['a_nu'], 1 / prior_params['advection']['b_nu'])
     
-    # Informed initialization for the error variances:
-    # For real applications the latent state is not known so we turn to the observed data.
-    if observations is not None:
-        # Compute temporal differences (across time) for each spatial location.
-        obs_diff = np.diff(observations, axis=1)  # shape: (N, time_steps-1)
-        # Get an overall idea of the scale by averaging the per-location variance, ignoring nans.
-        var_diff = np.mean(np.nanvar(obs_diff, axis=1))
-        # Under the model: Var(Z[t]-Z[t-1]) ≈ sigma_eta_sq + 2*sigma_epsilon_sq.
-        # Assuming (roughly) equal contributions, we split the variance equally.
-        init['sigma_eta_sq'] = var_diff / 3
-        init['sigma_epsilon_sq'] = var_diff / 3
-    else:
-        # Fall back to sampling from the Gamma priors.
-        init['sigma_eta_sq'] = np.random.gamma(prior_params['process']['a_eta'], 
-                                               1 / prior_params['process']['b_eta'])
-        init['sigma_epsilon_sq'] = np.random.gamma(prior_params['observation']['a_epsilon'], 
-                                                   1 / prior_params['observation']['b_epsilon'])
+    # # Informed initialization for the error variances:
+    # # For real applications the latent state is not known so we turn to the observed data.
+    # if observations is not None:
+    #     # Compute temporal differences (across time) for each spatial location.
+    #     obs_diff = np.diff(observations, axis=1)  # shape: (N, time_steps-1)
+    #     # Get an overall idea of the scale by averaging the per-location variance, ignoring nans.
+    #     var_diff = np.mean(np.nanvar(obs_diff, axis=1))
+    #     # Under the model: Var(Z[t]-Z[t-1]) ≈ sigma_eta_sq + 2*sigma_epsilon_sq.
+    #     # Assuming (roughly) equal contributions, we split the variance equally.
+    #     init['sigma_eta_sq'] = var_diff / 3
+    #     init['sigma_epsilon_sq'] = var_diff / 3
+    # else:
+    #     # Fall back to sampling from the Gamma priors.
+    #     init['sigma_eta_sq'] = np.random.gamma(prior_params['process']['a_eta'], 
+    #                                            1 / prior_params['process']['b_eta'])
+    #     init['sigma_epsilon_sq'] = np.random.gamma(prior_params['observation']['a_epsilon'], 
+    #                                                1 / prior_params['observation']['b_epsilon'])
     
     # Initialize the state for the MCMC (for time steps 1,...,T)
-    init['state'] = np.random.normal(prior_params['process']['m_state'],
-                                     np.sqrt(prior_params['process']['v_state']),
+    init['state'] = np.random.normal(prior_params['initial_state']['m_state'],
+                                     np.sqrt(prior_params['initial_state']['v_state']),
                                      (N, time_steps + 1))
     
     return init

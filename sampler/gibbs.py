@@ -48,14 +48,7 @@ class GibbsSampler:
         self.N = observations.shape[0]
         self.T = observations.shape[1]
 
-        self.fixed_sigmas = fixed_sigmas
-
-        # Forecast states and observations
-        if generate_forecasts:
-            self.generate_forecasts = True
-            self.forecast_steps = forecast_steps
-        else:
-            self.generate_forecasts = False        
+        self.fixed_sigmas = fixed_sigmas        
 
         self.self_idx = neighbour_locs[:, 0]
         self.left_idx = neighbour_locs[:, 1]
@@ -86,74 +79,6 @@ class GibbsSampler:
             scale=np.sqrt(self.sigma_epsilon_sq)
         )
 
-    def rolling_forecast_prediction(self,
-                                    initial_state: np.ndarray,
-                                    initial_nu: np.ndarray,
-                                    forecast_steps: int,
-                                    neighbour_locs: np.ndarray,
-                                    parameters: dict,
-                                    num_samples: int = 12) -> dict:
-        """
-        Generate out-of-sample rolling forecast predictive samples via composition sampling.
-        """
-        N = initial_state.shape[0]
-        
-        left_neighbors  = neighbour_locs[:, 1].astype(int)
-        right_neighbors = neighbour_locs[:, 2].astype(int)
-        up_neighbors    = neighbour_locs[:, 3].astype(int)
-        down_neighbors  = neighbour_locs[:, 4].astype(int)
-        
-        forecast_states_samples = np.zeros((N, forecast_steps + 1, num_samples), dtype=np.float32)
-        forecast_obs_samples    = np.zeros((N, forecast_steps, num_samples), dtype=np.float32)
-        
-        for s in range(num_samples):
-            current_state = initial_state.copy()   # shape (N,)
-            current_nu    = initial_nu.copy()        # shape (2,)
-            
-            forecast_states = [current_state.copy()]
-            forecast_obs    = []
-            
-            for t in range(1, forecast_steps + 1):
-                noise_nu = np.random.multivariate_normal(mean=np.zeros(2),
-                                                        cov=parameters['sigma_nu_sq'] * np.eye(2))
-                new_nu = parameters['alpha'] * current_nu + noise_nu
-
-                process_noise = np.random.normal(0, np.sqrt(parameters['sigma_eta_sq']), N)
-                
-                new_state = ((1 - 4 * parameters['beta']) * current_state +
-                            (parameters['beta'] - new_nu[0]) * current_state[right_neighbors] +
-                            (parameters['beta'] + new_nu[0]) * current_state[left_neighbors] +
-                            (parameters['beta'] - new_nu[1]) * current_state[down_neighbors] +
-                            (parameters['beta'] + new_nu[1]) * current_state[up_neighbors] +
-                            process_noise)
-                
-                observation_noise = np.random.normal(0, np.sqrt(parameters['sigma_epsilon_sq']), N)
-                obs = new_state + observation_noise
-                
-                current_state = new_state.copy()
-                current_nu = new_nu.copy()
-                
-                forecast_states.append(current_state.copy())
-                forecast_obs.append(obs.copy())
-            
-            forecast_states_array = np.stack(forecast_states, axis=1)
-            forecast_obs_array = np.stack(forecast_obs, axis=1)
-            
-            forecast_states_samples[:, :, s] = forecast_states_array.astype(np.float32)
-            forecast_obs_samples[:, :, s] = forecast_obs_array.astype(np.float32)
-
-            # If only one sample is requested, squeeze the extra dimension
-        if num_samples == 1:
-            return {
-                'forecast_states': forecast_states_samples.squeeze(2),  # Remove dimension of size 1
-                'forecast_observations': forecast_obs_samples.squeeze(2)  # Remove dimension of size 1
-            }
-        else:
-            return {
-                'forecast_states': forecast_states_samples,
-                'forecast_observations': forecast_obs_samples
-            }
-
     def sample(self) -> Dict[str, Any]:
         """
         Runs the Gibbs sampling procedure, using zarr only for large arrays.
@@ -177,16 +102,6 @@ class GibbsSampler:
                                     shape=(2, self.T+1, self.num_saved_samples),
                                     chunks=(2, min(100, self.T+1), min(100, self.num_saved_samples)),
                                     dtype=np.float32)
-        
-        if self.generate_forecasts:
-            forecast_states = store.create_array('forecast_states',
-                                            shape=(self.N, self.forecast_steps+1, self.num_saved_samples),
-                                            chunks=(self.N, self.forecast_steps+1, min(100, self.num_saved_samples)),
-                                            dtype=np.float32)
-            forecast_observations = store.create_array('forecast_observations',
-                                                  shape=(self.N, self.forecast_steps, self.num_saved_samples),
-                                                  chunks=(self.N, self.forecast_steps, min(100, self.num_saved_samples)),
-                                                  dtype=np.float32)
         
         sample_idx = 0
         
@@ -348,24 +263,6 @@ class GibbsSampler:
                 Y_samples[:, :, idx] = self.state.astype(np.float32)
                 nu_samples[:, :, idx] = self.nu.transpose(1, 0).astype(np.float32)
                 
-                if self.generate_forecasts:
-                    forecast_results = self.rolling_forecast_prediction(
-                        initial_state=self.state[:, -1],
-                        initial_nu=self.nu[-1],
-                        forecast_steps=self.forecast_steps,
-                        neighbour_locs=self.neighbour_locs,
-                        parameters={
-                            'alpha': self.alpha,
-                            'beta': self.beta,
-                            'sigma_eta_sq': self.sigma_eta_sq,
-                            'sigma_epsilon_sq': self.sigma_epsilon_sq,
-                            'sigma_nu_sq': self.sigma_nu_sq
-                        },
-                        num_samples=1
-                    )
-                    forecast_states[:, :, idx] = forecast_results['forecast_states']
-                    forecast_observations[:, :, idx] = forecast_results['forecast_observations']
-                
                 sample_idx += 1
             
             # Clean up temporary arrays and run garbage collection
@@ -383,11 +280,5 @@ class GibbsSampler:
             'Y_samples': 'gibbs_results.zarr/Y_samples',
             'nu_samples': 'gibbs_results.zarr/nu_samples'
         }
-        
-        if self.generate_forecasts:
-            result.update({
-                'forecast_states': 'gibbs_results.zarr/forecast_states',
-                'forecast_observations': 'gibbs_results.zarr/forecast_observations'
-            })
         
         return result

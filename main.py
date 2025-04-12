@@ -1,6 +1,8 @@
 import zarr
 import numpy as np
 import arviz as az
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 from simulation import (
     initialize_simulation_params,
@@ -20,10 +22,8 @@ def main():
     params = initialize_simulation_params()
     # Modify the parameters for the Gibbs sampler
     params['N_ensemble'] = 100
-    params['smoothing_window'] = 12
+    params['smoothing_window'] = 6
     params['time_steps'] = 35
-    params["prior_params"]['process']['m_state'] = 400
-    params["prior_params"]['process']['v_state'] = 200
     
     # Create neighbor locations matrix
     neighbour_locs = create_neighbour_locs(params['grid_size_x'], params['grid_size_y'])
@@ -42,10 +42,43 @@ def main():
     # Generate initializations for the Gibbs sampler
     mcmc_init = get_mcmc_initializations(params, observations)
 
+    # Set up the plot for observations animation
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Compute min and max values for consistent colorbar scale, ignoring NaNs
+    vmin = float(np.nanmin(observations))
+    vmax = float(np.nanmax(observations))
+    
+    # Initialize the plot with first frame
+    im = ax.imshow(observations[:, 0].reshape(params['grid_shape']), 
+                   origin='lower', cmap='viridis',
+                   vmin=vmin, vmax=vmax)
+    
+    # Add colorbar
+    plt.colorbar(im, ax=ax)
+    title = ax.set_title(f'Time step: 0')
+    
+    # Animation update function
+    def update(frame):
+        # Reshape the data for current frame
+        data_frame = observations[:, frame].reshape(params['grid_shape'])
+        im.set_data(data_frame)
+        title.set_text(f'Time step: {frame}')
+        return im, title
+    
+    # Create animation
+    ani = animation.FuncAnimation(fig, update, 
+                                frames=observations.shape[1],
+                                interval=200, # 200ms between frames
+                                blit=True)
+    
+    # Save animation
+    ani.save("observations_animation.gif", writer="pillow", fps=2)
+    plt.close()
     # Burn-in, thinning and number of iterations for the Gibbs sampler
-    burn_in = 1200
+    burn_in = 1000
     thin = 2
-    iter = 2200
+    iter = 2000
 
     # Initialize the Gibbs sampler with fixed sigmas
     gibbs_sampler = GibbsSampler(

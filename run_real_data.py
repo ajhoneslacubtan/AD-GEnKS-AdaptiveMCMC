@@ -111,10 +111,10 @@ def main():
     params['grid_shape'] = (grid_size_x, grid_size_y)
     params['N'] = N
     # Set time steps based on the training observations (note: observations are from t=1,...,T; initial state is unobserved)
-    params['time_steps'] = observations.shape[1]  # T = 60 for training set
+    params['time_steps'] = observations.shape[1]
     params['smoothing_window'] = 6
-    params["prior_params"]['process']['m_state'] = 300
-    params["prior_params"]['process']['v_state'] = 100
+    params['sigma_eta_sq'] = 600.0
+    params['sigma_epsilon_sq'] = 900.0
 
     # Create neighbor index array
     neighbour_locs = create_neighbour_locs(grid_size_x, grid_size_y)  # shape: (N, 5)
@@ -131,6 +131,8 @@ def main():
     num_iterations = 2000
 
     # Fixed Sigma
+    print(mcmc_init)
+    print(params)
 
     gibbs_sampler = GibbsSampler(
         observations=observations,
@@ -141,104 +143,84 @@ def main():
         alpha_init=mcmc_init['alpha'],
         beta_init=0.1,
         sigma_eta_sq_init=params['sigma_eta_sq'],
-        sigma_nu_sq_init=params['sigma_nu_sq'],
+        sigma_nu_sq_init=0.01,
         sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],
         prior_params=params['prior_params'],
         N_ensemble=params['N_ensemble'],
         smoothing_window=params['smoothing_window'],
-        fixed_sigmas=True,
-        beta_sampling_method='normal'
+        fixed_sigmas=True
     )
 
     samples = gibbs_sampler.sample()
-
-    # Load large arrays from zarr
+    # -------------------
+    # Load Gibbs samples from zarr and in-memory dictionary
+    # -------------------
     store = zarr.open('gibbs_results.zarr', mode='r')
+
     samples.update({
         'Y_samples': store['Y_samples'][:],
         'nu_samples': store['nu_samples'][:]
     })
 
-    # -------------------------------
-    # 4. Build InferenceData and save results
-    # -------------------------------
+    # -------------------
+    # Create InferenceData dictionaries (excluding sigma samples)
+    # -------------------
     posterior = {
-        'alpha': np.expand_dims(samples['alpha_samples'], axis=0),
-        'beta': np.expand_dims(samples['beta_samples'], axis=0),
-        'nu': np.expand_dims(np.transpose(samples['nu_samples'], (2, 0, 1)), axis=0),
-        'state': np.expand_dims(np.transpose(samples['Y_samples'], (2, 0, 1)), axis=0)
+        'alpha': np.expand_dims(samples['alpha_samples'], axis=0),  # shape: (1, draws)
+        'beta': np.expand_dims(samples['beta_samples'], axis=0),    # shape: (1, draws)
+        'nu': np.expand_dims(np.transpose(samples['nu_samples'], (2, 0, 1)), axis=0),     # shape: (1, draws, 2, T+1)
+        'state': np.expand_dims(np.transpose(samples['Y_samples'], (2, 0, 1)), axis=0)    # shape: (1, draws, N, T+1)
     }
 
     log_likelihood = {
-        'log_complete_samples': np.expand_dims(samples['log_complete_samples'], axis=0)
+        'log_complete_samples': np.expand_dims(samples['log_complete_samples'], axis=0)  # shape: (1, draws)
     }
 
+    # Observed data only (no constant data for real data analysis)
     observed_data = {
-        'observed_variable': observations,
-        'observed_test': test_observations
+        'observed_variable': observations  # shape: (N, T_obs)
     }
+
+    # -------------------
+    # Create coords and dims
+    # -------------------
+    num_draws = samples['alpha_samples'].shape[0]
+    N = samples['Y_samples'].shape[0]
+    T_state = samples['Y_samples'].shape[1]
+    T_obs = T_state - 1
 
     coords = {
-        "draw": np.arange(posterior['alpha'].shape[1]),
+        "draw": np.arange(num_draws),
         "location": np.arange(N),
-        "time_state": np.arange(observations.shape[1]+1),
-        "time_obs": np.arange(observations.shape[1]),
-        "test_time_obs": np.arange(test_observations.shape[1]),
+        "time_state": np.arange(T_state),
+        "time_obs": np.arange(T_obs),
         "component": np.array(["v_x", "v_y"])
     }
 
     dims = {
         "alpha": ["draw"],
         "beta": ["draw"],
-        "sigma_nu_sq": ["draw"],
         "nu": ["draw", "component", "time_state"],
         "state": ["draw", "location", "time_state"],
         "log_complete_samples": ["draw"],
-        "observed_variable": ["location", "time_obs"],
-        "observed_test": ["location", "test_time_obs"]
+        "observed_variable": ["location", "time_obs"]
     }
 
-    idata_posterior = az.from_dict(
-        posterior=posterior,
-        observed_data=observed_data,
-        log_likelihood=log_likelihood,
-        coords={
-            "draw": coords["draw"],
-            "location": coords["location"],
-            "time_state": coords["time_state"],
-            "time_obs": coords["time_obs"],
-            "test_time_obs": coords["test_time_obs"],
-            "component": coords["component"]
-        },
-        dims={
-            "alpha": dims["alpha"],
-            "beta": dims["beta"],
-            "sigma_nu_sq": dims["sigma_nu_sq"],
-            "nu": dims["nu"],
-            "state": dims["state"],
-            "observed_variable": dims["observed_variable"],
-            "observed_test": dims["observed_test"],
-            "log_complete_samples": dims["log_complete_samples"]
-        }
-    )
-    az.to_netcdf(idata_posterior, 'real_inference_data_gibbs_swr.nc')
-    
-    # ====================
-    # Save posterior samples separately
-    # ====================
-    posterior = {
-        'alpha': np.expand_dims(samples['alpha_samples'], axis=0),
-        'beta': np.expand_dims(samples['beta_samples'], axis=0),
-        'nu': np.expand_dims(np.transpose(samples['nu_samples'], (2, 0, 1)), axis=0),
-        'state': np.expand_dims(np.transpose(samples['Y_samples'], (2, 0, 1)), axis=0)
-    }
-
-    # Save posterior samples with smoothing window and sigma_eta_sq in filename
+    # -------------------
+    # Format filenames for real data
+    # -------------------
     smoothing_window = params['smoothing_window']
     sigma_eta_sq = params['sigma_eta_sq']
-    posterior_filename = f"real_posterior_sw_{smoothing_window}_sigma_eta_{sigma_eta_sq:.1f}.nc"
+    sigma_eta_str = f"{sigma_eta_sq:.1f}"
+
+    posterior_filename = f"real_posterior_sw{smoothing_window}_sigmaEta{sigma_eta_str}.nc"
+    rest_filename = f"real_inference_data_rest_sw{smoothing_window}_sigmaEta{sigma_eta_str}.nc"
+
+    # -------------------
+    # Save posterior samples
+    # -------------------
     idata_posterior = az.from_dict(
         posterior=posterior,
         coords={
@@ -252,31 +234,32 @@ def main():
             "beta": dims["beta"],
             "nu": dims["nu"],
             "state": dims["state"],
+            "log_complete_samples": dims["log_complete_samples"]
         }
     )
     az.to_netcdf(idata_posterior, posterior_filename)
     print(f"Posterior samples saved to '{posterior_filename}'")
 
-    # Save rest data with smoothing window and sigma_eta_sq in filename
-    rest_filename = f"real_inference_data_rest_sw_{smoothing_window}_sigma_eta_{sigma_eta_sq:.1f}.nc"
+    # -------------------
+    # Save observed data and log likelihood
+    # -------------------
     idata_rest = az.from_dict(
         observed_data=observed_data,
         log_likelihood=log_likelihood,
         coords={
             "location": coords["location"],
-            "time_obs": coords["time_obs"],
-            "test_time_obs": coords["test_time_obs"]
+            "time_obs": coords["time_obs"]
         },
         dims={
-            "observed_variable": dims["observed_variable"],
-            "observed_test": dims["observed_test"],
-            "log_complete_samples": dims["log_complete_samples"]
+            "observed_variable": dims["observed_variable"]
         }
     )
     az.to_netcdf(idata_rest, rest_filename)
     print(f"Remaining data saved to '{rest_filename}'")
-    
-    # After saving all data, add posterior summary
+
+    # -------------------
+    # Posterior summary
+    # -------------------
     summary = az.summary(idata_posterior.posterior, var_names=["alpha", "beta"])
     print(summary)
 
