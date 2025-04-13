@@ -22,12 +22,11 @@ class GibbsSampler:
                  sigma_epsilon_sq_init: float,
                  nu_init: NDArray[np.float64],          # Shape: (T+1, 2)
                  state_init: NDArray[np.float64],       # Shape: (N, T+1)
+                 initial_ensemble: NDArray[np.float64],   # Shape: (N, N_ensemble), for EnKS initialization
                  prior_params: Dict[str, Dict[str, float]],
                  N_ensemble: int,
                  smoothing_window: int,
-                 fixed_sigmas: bool = False,
-                 generate_forecasts: bool = False,
-                 forecast_steps: int = 12) -> None:
+                 fixed_sigmas: bool = False) -> None:
         self.observations = observations
         self.neighbour_locs = neighbour_locs
         self.num_iterations = num_iterations
@@ -40,6 +39,7 @@ class GibbsSampler:
         self.sigma_epsilon_sq = sigma_epsilon_sq_init
         self.nu = nu_init.copy()
         self.state = state_init.copy()
+        self.initial_ensemble = initial_ensemble.copy()
         self.prior_params = prior_params
         self.N_ensemble = N_ensemble
         self.smoothing_window = smoothing_window
@@ -115,8 +115,7 @@ class GibbsSampler:
                         self.nu,
                         self.sigma_eta_sq,
                         self.sigma_epsilon_sq,
-                        self.prior_params['initial_state']['m_state'],
-                        self.prior_params['initial_state']['v_state']
+                        self.initial_ensemble
                         )
             # Update state using a random ensemble member
             self.state = Y_analysis[:, np.random.randint(0, self.N_ensemble), :].copy()

@@ -88,16 +88,15 @@ class EnKS:
         return Y_analysis
 
 def EnKS_Optimized(observations: np.ndarray,
-                    neighbour_locs: np.ndarray,
-                    N_ensemble: int,
-                    lags: int,
-                    beta: float,
-                    nu: np.ndarray,
-                    sigma_eta_sq: float,
-                    sigma_epsilon_sq: float,
-                    m_state: float,
-                    v_state: float,
-                    epsilon: float = 1e-5) -> np.ndarray:
+                   neighbour_locs: np.ndarray,
+                   N_ensemble: int,
+                   lags: int,
+                   beta: float,
+                   nu: np.ndarray,
+                   sigma_eta_sq: float,
+                   sigma_epsilon_sq: float,
+                   initial_state: np.ndarray,
+                   epsilon: float = 1e-5) -> np.ndarray:
     """
     Python wrapper for the Julia EnKSSamplerOptimized.run function.
     
@@ -110,8 +109,7 @@ def EnKS_Optimized(observations: np.ndarray,
         nu (np.ndarray): 2D array of shape (T_obs, 2) with [v_x, v_y] per time step.
         sigma_eta_sq (float): Process noise variance.
         sigma_epsilon_sq (float): Observation noise variance.
-        m_state (float): Mean state for initializing the ensemble.
-        v_state (float): Variance state for initializing the ensemble.
+        initial_state (np.ndarray): 2D array of shape (N, N_ensemble) for initializing the latent state ensemble.
         epsilon (float, optional): Regularization parameter. Default is 1e-5.
         
     Returns:
@@ -127,8 +125,7 @@ def EnKS_Optimized(observations: np.ndarray,
         nu,
         sigma_eta_sq,
         sigma_epsilon_sq,
-        m_state,
-        v_state,
+        initial_state,
         epsilon=epsilon
     )
     

@@ -158,30 +158,26 @@ end
 function run(observations::Matrix{Float64}, neighbour_locs::Matrix{Int},
              N_ensemble::Int, lags::Int, beta::Float64, nu::Matrix{Float64},
              sigma_eta_sq::Float64, sigma_epsilon_sq::Float64, 
-             m_state::Float64, v_state::Float64; epsilon::Float64=1e-5) :: Array{Float64,3}
+             initial_state::AbstractMatrix{Float64}; epsilon::Float64=1e-5) :: Array{Float64,3}
 
     N, T_obs = size(observations)
     Y_analysis = Array{Float64,3}(undef, N, N_ensemble, T_obs + 1)
-    
-    # Initialize the ensemble at time 1 using m_state and v_state.
-    Y_analysis[:, :, 1] .= randn(N, N_ensemble) .* sqrt(v_state) .+ m_state
-    
+
+    # Initialize the ensemble at time t=1 using the provided initial_state.
+    # It is assumed that initial_state is a matrix of shape (N, N_ensemble)
+    Y_analysis[:, :, 1] .= initial_state
+
     # Precompute neighbor indices for faster propagation.
     neighbors = precompute_neighbors(neighbour_locs)
-    
-    # Create a progress meter.
-    # p = Progress(T_obs, dt=0.5, 
-    #     barglyphs=BarGlyphs('|','█', ['▁','▂','▃','▄','▅','▆','▇'],' ','|'),
-    #     barlen=30, desc="Running EnKS: ", enabled=true)
     
     for t in 2:(T_obs + 1)
         nu_t = @view nu[t-1, :]
         Y_analysis[:, :, t] .= propagate(Y_analysis[:, :, t-1], neighbors, beta, nu_t, sigma_eta_sq)
         update_step!(Y_analysis, observations, t, lags, N_ensemble, sigma_epsilon_sq; epsilon=epsilon)
-        # next!(p)
     end
     return Y_analysis
 end
+
 
 # ---------------------------------------------------------------------
 # Benchmark Function

@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the data
-idata = az.from_netcdf("real_posterior_sw6_sigmaEta200.0.nc")
+idata = az.from_netcdf("real_posterior_sw6_sigmaEta1000.0.nc")
 # extra_data = az.from_netcdf("inference_data_rest_sw_6.nc")
 # true_nu = extra_data.constant_data["true_nu"].values
 

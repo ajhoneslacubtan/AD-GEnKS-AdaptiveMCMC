@@ -232,7 +232,7 @@ def initialize_simulation_params() -> dict:
         },
         'initial_state': {
             'm_state': 600.0, # mean of the initial state
-            'v_state': 700.0 # variance of the initial state
+            'v_state': 5000.0 # variance of the initial state
         }
     }
     
