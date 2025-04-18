@@ -1,11 +1,10 @@
 import numpy as np
 from numpy.typing import NDArray
 from typing import Dict, Any
-from scipy.stats import truncnorm, invgamma
+from scipy.stats import truncnorm, invgamma, norm
 from sampler.EnKS import EnKS_Optimized
 from tqdm import tqdm
 import gc
-from zarr.storage import LocalStore
 import zarr
 
 class GibbsSampler: 
