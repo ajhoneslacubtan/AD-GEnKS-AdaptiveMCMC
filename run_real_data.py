@@ -6,7 +6,7 @@ import matplotlib.pylab as plt
 import matplotlib.animation as animation
 import pandas as pd
 
-from simulation import (
+from sampler.simulation import (
     initialize_simulation_params,
     create_neighbour_locs,
     get_mcmc_initializations

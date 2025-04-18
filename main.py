@@ -4,7 +4,7 @@ import arviz as az
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-from simulation import (
+from sampler.simulation import (
     initialize_simulation_params,
     simulate_advection,
     simulate_state,
