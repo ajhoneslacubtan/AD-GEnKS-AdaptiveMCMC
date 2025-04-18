@@ -42,6 +42,13 @@ def main():
     # Generate initializations for the Gibbs sampler
     mcmc_init = get_mcmc_initializations(params, observations)
 
+    # Create initial ensemble for EnKS initialization
+    N = params['N']
+    N_ensemble = params['N_ensemble']
+    m_state = params['prior_params']['initial_state']['m_state']
+    v_state = params['prior_params']['initial_state']['v_state']
+    initial_ensemble = np.random.normal(m_state, np.sqrt(v_state), size=(N, N_ensemble))
+
     # Set up the plot for observations animation
     fig, ax = plt.subplots(figsize=(8, 6))
     
@@ -78,27 +85,28 @@ def main():
     # Burn-in, thinning and number of iterations for the Gibbs sampler
     burn_in = 1000
     thin = 2
-    iter = 2000
+    iterations = 2000
 
     # Initialize the Gibbs sampler with fixed sigmas
     gibbs_sampler = GibbsSampler(
         observations=observations,
         neighbour_locs=neighbour_locs,
-        num_iterations=iter,
+        num_iterations=iterations,
         burn_in=burn_in,
         thin=thin,
         alpha_init=mcmc_init['alpha'],
-        beta_init=mcmc_init['beta'],
+        beta_init=0.1,
         sigma_eta_sq_init=params['sigma_eta_sq'],
-        sigma_nu_sq_init=mcmc_init['sigma_nu_sq'],
+        sigma_nu_sq_init=0.01,
         sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],
+        initial_ensemble=initial_ensemble,
         prior_params=params['prior_params'],
         N_ensemble=params['N_ensemble'],
         smoothing_window=params['smoothing_window'],
         fixed_sigmas=True,
-        generate_forecasts=True
+        beta_sampling_method='adaptive'
     )
 
     # Load the samples dictionary containing both in-memory and zarr paths
