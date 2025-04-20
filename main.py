@@ -24,8 +24,8 @@ def main():
     params['N_ensemble'] = 100
     params['smoothing_window'] = 6
     params['time_steps'] = 29
-    params['grid_size_x'] = 20
-    params['grid_size_y'] = 20
+    params['grid_size_x'] = 124
+    params['grid_size_y'] = 176
     params['grid_shape'] = (params['grid_size_x'], params['grid_size_y'])
     params['N'] = params['grid_size_x'] * params['grid_size_y']
     
