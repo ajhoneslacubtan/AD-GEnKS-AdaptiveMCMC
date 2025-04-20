@@ -77,7 +77,7 @@ def main():
     
     # Initialize the plot with first frame
     im = ax.imshow(state[:, 0].reshape(params['grid_shape']), 
-                   cmap='viridis', vmin=vmin, vmax=vmax)
+                   cmap='RdYlBu_r', vmin=vmin, vmax=vmax)
     
     # Add colorbar
     plt.colorbar(im, ax=ax)
@@ -114,9 +114,9 @@ def main():
         burn_in=burn_in,
         thin=thin,
         alpha_init=mcmc_init['alpha'],
-        beta_init=0.1,
+        beta_init=0.2,
         sigma_eta_sq_init=params['sigma_eta_sq'],
-        sigma_nu_sq_init=0.01,
+        sigma_nu_sq_init=params['sigma_nu_sq'],
         sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],

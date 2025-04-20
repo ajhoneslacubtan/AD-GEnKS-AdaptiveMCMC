@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from numpy.typing import NDArray
 from typing import Dict, Any
@@ -6,6 +7,9 @@ from sampler.EnKS import EnKS_Optimized
 from tqdm import tqdm
 import gc
 import zarr
+
+# Save logs to a file
+logging.basicConfig(filename='logs/gibbs_sampler.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class GibbsSampler: 
     def __init__(self, 
@@ -65,20 +69,20 @@ class GibbsSampler:
             self._beta_accepted = 0       # count accepted proposals
             self._beta_burn_in_samples = []  # collect burn-in samples for β
 
-        print(f"Sampler initialized with:")
-        print(f"  - Number of iterations: {self.num_iterations}")
-        print(f"  - Burn-in: {self.burn_in}")
-        print(f"  - Thinning: {self.thin}")
-        print(f"  - Number of saved samples: {self.num_saved_samples}")
-        print(f"  - Number of observations: {self.N}")
-        print(f"  - Number of time steps: {self.T}")
-        print(f"  - Number of ensemble members: {self.N_ensemble}")
-        print(f"  - Smoothing window: {self.smoothing_window}")
-        print(f"  - Shapes of variables:")
-        print(f"    - observations: {self.observations.shape}")
-        print(f"    - neighbour_locs: {self.neighbour_locs.shape}")
-        print(f"    - nu: {self.nu.shape}")
-        print(f"    - state: {self.state.shape}")
+        logging.info(f"Sampler initialized with:")
+        logging.info(f"  - Number of iterations: {self.num_iterations}")
+        logging.info(f"  - Burn-in: {self.burn_in}")
+        logging.info(f"  - Thinning: {self.thin}")
+        logging.info(f"  - Number of saved samples: {self.num_saved_samples}")
+        logging.info(f"  - Number of observations: {self.N}")
+        logging.info(f"  - Number of time steps: {self.T}")
+        logging.info(f"  - Number of ensemble members: {self.N_ensemble}")
+        logging.info(f"  - Smoothing window: {self.smoothing_window}")
+        logging.info(f"  - Shapes of variables:")
+        logging.info(f"    - observations: {self.observations.shape}")
+        logging.info(f"    - neighbour_locs: {self.neighbour_locs.shape}")
+        logging.info(f"    - nu: {self.nu.shape}")
+        logging.info(f"    - state: {self.state.shape}")
 
         # --- Data Augmentation for Missing Observations ---
         self.augmented_observations = observations.copy()
@@ -268,26 +272,26 @@ class GibbsSampler:
                 sigma_beta_sq = 1 / a_beta
                 self.beta = np.random.normal(mu_beta, np.sqrt(sigma_beta_sq))
             elif self.beta_sampling_method == "adaptive":
-                # "adaptive" method using the two-phase approach.
                 if iter < self.burn_in:
                     # Burn-in phase: update β via RWMH and collect samples.
                     self.beta = self._sample_beta_rwmh(self.beta)
                     self._beta_burn_in_samples.append(self.beta)
-                    # Calculate proposal parameters once when burn-in ends
+                    # Log acceptance rate every 100 iterations during burn-in
+                    if (iter % 100 == 0) and (self._beta_trials > 0):
+                        acceptance_rate = self._beta_accepted / self._beta_trials
+                        logging.info(f"Iteration {iter}: Beta sample {self.beta:.4f}")
+                        logging.info(f"Iteration {iter}: Adaptive β sampling acceptance rate so far: {acceptance_rate:.4f}")
                     if iter == self.burn_in - 1:
                         burn_in_array = np.array(self._beta_burn_in_samples)
                         self._proposal_mu = burn_in_array.mean()
                         self._proposal_var = burn_in_array.var()
-                        # Print acceptance rate and proposal parameters
                         acceptance_rate = self._beta_accepted / self._beta_trials if self._beta_trials > 0 else 0.0
-                        print(f"Adaptive β sampling: Acceptance rate during burn-in: {acceptance_rate:.4f}")
-                        print(f"Adaptive β sampling: Proposal mu = {self._proposal_mu:.4f}, Proposal var = {self._proposal_var}")
-                        # Free memory
+                        logging.info(f"Adaptive β sampling: Acceptance rate during burn-in: {acceptance_rate:.4f}")
+                        logging.info(f"Adaptive β sampling: Proposal mu = {self._proposal_mu:.4f}, Proposal var = {self._proposal_var}")
                         del self._beta_burn_in_samples
                         gc.collect()
                 else:
                     # After burn-in: use pre-computed mean and variance
-                    # Sample β using independent proposal
                     self.beta = self._sample_beta_indep(self.beta, self._proposal_mu, self._proposal_var)
             else:
                 raise ValueError("Invalid beta sampling method. Choose 'normal' or 'adaptive'.")
