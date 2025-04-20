@@ -68,17 +68,16 @@ def main():
     v_state = params['prior_params']['initial_state']['v_state']
     initial_ensemble = np.random.normal(m_state, np.sqrt(v_state), size=(N, N_ensemble))
 
-    # Set up the plot for observations animation
+    # Set up the plot for state animation
     fig, ax = plt.subplots(figsize=(8, 6))
     
-    # Compute min and max values for consistent colorbar scale, ignoring NaNs
-    vmin = float(np.nanmin(observations))
-    vmax = float(np.nanmax(observations))
+    # Compute min and max values for consistent colorbar scale
+    vmin = float(np.min(state))
+    vmax = float(np.max(state))
     
     # Initialize the plot with first frame
-    im = ax.imshow(observations[:, 0].reshape(params['grid_shape']), 
-                   origin='lower', cmap='viridis',
-                   vmin=vmin, vmax=vmax)
+    im = ax.imshow(state[:, 0].reshape(params['grid_shape']), 
+                   cmap='viridis', vmin=vmin, vmax=vmax)
     
     # Add colorbar
     plt.colorbar(im, ax=ax)
@@ -87,20 +86,21 @@ def main():
     # Animation update function
     def update(frame):
         # Reshape the data for current frame
-        data_frame = observations[:, frame].reshape(params['grid_shape'])
+        data_frame = state[:, frame].reshape(params['grid_shape'])
         im.set_data(data_frame)
         title.set_text(f'Time step: {frame}')
         return im, title
     
     # Create animation
     ani = animation.FuncAnimation(fig, update, 
-                                frames=observations.shape[1],
+                                frames=state.shape[1],
                                 interval=200, # 200ms between frames
                                 blit=True)
     
     # Save animation
-    ani.save("observations_animation.gif", writer="pillow", fps=2)
+    ani.save("state_animation.gif", writer="pillow", fps=2)
     plt.close()
+
     # Burn-in, thinning and number of iterations for the Gibbs sampler
     burn_in = 1000
     thin = 2
