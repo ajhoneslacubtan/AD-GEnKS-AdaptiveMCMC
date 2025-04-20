@@ -60,7 +60,7 @@ class GibbsSampler:
         self.beta_sampling_method = beta_sampling_method  # "normal" or "adaptive"
         if self.beta_sampling_method == "adaptive":
             _scale = 1  # scale for the proposal distribution
-            self._beta_proposal_var = _scale * 9.740275359702301e-08  # fixed proposal std for RWMH during burn-in
+            self._beta_proposal_var = _scale * 0.0002  # fixed proposal std for RWMH during burn-in
             self._beta_trials = 0         # count total proposals
             self._beta_accepted = 0       # count accepted proposals
             self._beta_burn_in_samples = []  # collect burn-in samples for β
@@ -280,8 +280,8 @@ class GibbsSampler:
                         self._proposal_var = burn_in_array.var()
                         # Print acceptance rate and proposal parameters
                         acceptance_rate = self._beta_accepted / self._beta_trials if self._beta_trials > 0 else 0.0
-                        self.logger.info(f"Adaptive β sampling: Acceptance rate during burn-in: {acceptance_rate:.4f}")
-                        self.logger.info(f"Adaptive β sampling: Proposal mu = {self._proposal_mu:.4f}, Proposal var = {self._proposal_var}")
+                        print(f"Adaptive β sampling: Acceptance rate during burn-in: {acceptance_rate:.4f}")
+                        print(f"Adaptive β sampling: Proposal mu = {self._proposal_mu:.4f}, Proposal var = {self._proposal_var}")
                         # Free memory
                         del self._beta_burn_in_samples
                         gc.collect()
@@ -289,6 +289,8 @@ class GibbsSampler:
                     # After burn-in: use pre-computed mean and variance
                     # Sample β using independent proposal
                     self.beta = self._sample_beta_indep(self.beta, self._proposal_mu, self._proposal_var)
+            else:
+                raise ValueError("Invalid beta sampling method. Choose 'normal' or 'adaptive'.")
             
             # Sample advection parameters (nu)
             # v_0

@@ -23,8 +23,27 @@ def main():
     # Modify the parameters for the Gibbs sampler
     params['N_ensemble'] = 100
     params['smoothing_window'] = 6
-    params['time_steps'] = 35
+    params['time_steps'] = 29
+    params['grid_size_x'] = 20
+    params['grid_size_y'] = 20
+    params['grid_shape'] = (params['grid_size_x'], params['grid_size_y'])
+    params['N'] = params['grid_size_x'] * params['grid_size_y']
     
+    params['alpha'] = 0.9
+    params['sigma_nu_sq'] = 0.01
+
+    params['beta'] = 0.2
+    params['sigma_eta_sq'] = 800.0
+
+    params['sigma_epsilon_sq'] = 2000.0
+
+    params['prior_params']['autoregression']['m_alpha'] = 0.7
+    params['prior_params']['autoregression']['v_alpha'] = 0.1
+    params['prior_params']['initial_state']['m_state'] = 600
+    params['prior_params']['initial_state']['v_state'] = 8000.0
+
+    params['burn_in_fraction'] = 0.3
+
     # Create neighbor locations matrix
     neighbour_locs = create_neighbour_locs(params['grid_size_x'], params['grid_size_y'])
     
