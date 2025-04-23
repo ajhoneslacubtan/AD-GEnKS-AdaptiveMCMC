@@ -111,15 +111,15 @@ def main():
     params['N'] = N
     # Set time steps based on the training observations (note: observations are from t=1,...,T; initial state is unobserved)
     params['time_steps'] = observations.shape[1]
-    params['smoothing_window'] = 6
-    params['sigma_eta_sq'] = 800.0
+    params['smoothing_window'] = 3
+    params['sigma_eta_sq'] = 500.0
     params['sigma_epsilon_sq'] = 1200.0
 
     # Create neighbor index array
     neighbour_locs = create_neighbour_locs(grid_size_x, grid_size_y)  # shape: (N, 5)
 
     # -------------------------------
-    # 3. Compute initial ensemble for data-driven initialization
+    # 3. Compute initial state mean for data-driven initialization
     # -------------------------------
     # Leverage 5 pre-training data around 7am PST.
     pre_train_start = "2025-04-04T08:00:00"
@@ -131,12 +131,6 @@ def main():
     pre_train = pre_train.reshape((N, pre_train.shape[2]))
     # Compute the mean of the pre-training observations at each grid point
     initial_state_mean = np.mean(pre_train, axis=1)  # shape: (N,)
-    # Add uncertainty: sample from N(0, v_state), where v_state is specified in the prior.
-    v_state = params['prior_params']['initial_state']['v_state']
-    initial_state_vector = initial_state_mean + np.random.normal(0, np.sqrt(v_state), size=(N,))
-    # Replicate across ensemble members to form an initial ensemble of shape (N, N_ensemble)
-    N_ensemble = params['N_ensemble']
-    initial_ensemble = np.tile(initial_state_vector[:, np.newaxis], (1, N_ensemble))
 
     # Generate initializations for the Gibbs sampler (MCMC initialization for the latent state)
     mcmc_init = get_mcmc_initializations(params, observations)
@@ -157,17 +151,18 @@ def main():
         burn_in=burn_in,
         thin=thin,
         alpha_init=mcmc_init['alpha'],
-        beta_init=0.1,
+        beta_init=0.2,
         sigma_eta_sq_init=params['sigma_eta_sq'],
         sigma_nu_sq_init=0.01,
         sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],
-        initial_ensemble=initial_ensemble,  # Pass the computed initial ensemble here.
+        initial_ensemble_mean=initial_state_mean,
         prior_params=params['prior_params'],
         N_ensemble=params['N_ensemble'],
         smoothing_window=params['smoothing_window'],
-        fixed_sigmas=True
+        fixed_sigmas=True,
+        beta_sampling_method="adaptive"
     )
 
     samples = gibbs_sampler.sample()

@@ -61,12 +61,10 @@ def main():
     # Generate initializations for the Gibbs sampler
     mcmc_init = get_mcmc_initializations(params, observations)
 
-    # Create initial ensemble for EnKS initialization
+    # Create initial state mean for EnKS initialization
     N = params['N']
-    N_ensemble = params['N_ensemble']
     m_state = params['prior_params']['initial_state']['m_state']
-    v_state = params['prior_params']['initial_state']['v_state']
-    initial_ensemble = np.random.normal(m_state, np.sqrt(v_state), size=(N, N_ensemble))
+    initial_ensemble_mean = np.ones(N) * m_state
 
     # Set up the plot for state animation
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -120,7 +118,7 @@ def main():
         sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],
-        initial_ensemble=initial_ensemble,
+        initial_ensemble_mean=initial_ensemble_mean,
         prior_params=params['prior_params'],
         N_ensemble=params['N_ensemble'],
         smoothing_window=params['smoothing_window'],

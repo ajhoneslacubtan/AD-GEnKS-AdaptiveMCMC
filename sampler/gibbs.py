@@ -25,7 +25,7 @@ class GibbsSampler:
                  sigma_epsilon_sq_init: float,
                  nu_init: NDArray[np.float64],          # Shape: (T+1, 2)
                  state_init: NDArray[np.float64],       # Shape: (N, T+1)
-                 initial_ensemble: NDArray[np.float64],   # Shape: (N, N_ensemble), for EnKS initialization
+                 initial_ensemble_mean: NDArray[np.float64],   # Shape: (N,), mean state for ensemble initialization
                  prior_params: Dict[str, Dict[str, float]],
                  N_ensemble: int,
                  smoothing_window: int,
@@ -43,7 +43,7 @@ class GibbsSampler:
         self.sigma_epsilon_sq = sigma_epsilon_sq_init
         self.nu = nu_init.copy()
         self.state = state_init.copy()
-        self.initial_ensemble = initial_ensemble.copy()
+        self.initial_ensemble_mean = initial_ensemble_mean.copy()
         self.prior_params = prior_params
         self.N_ensemble = N_ensemble
         self.smoothing_window = smoothing_window
@@ -213,6 +213,12 @@ class GibbsSampler:
         
         for iter in tqdm(range(self.num_iterations), desc="Gibbs Sampling Progress", unit="iteration"):
             # Sample Y via EnKS_Optimized
+            # Generate new ensemble for each iteration
+            initial_ensemble = np.random.normal(
+                self.initial_ensemble_mean[:, np.newaxis], 
+                np.sqrt(self.prior_params['initial_state']['v_state']), 
+                size=(self.N, self.N_ensemble)
+            )
             Y_analysis = EnKS_Optimized(self.augmented_observations, 
                         self.neighbour_locs, 
                         self.N_ensemble, 
@@ -221,7 +227,7 @@ class GibbsSampler:
                         self.nu,
                         self.sigma_eta_sq,
                         self.sigma_epsilon_sq,
-                        self.initial_ensemble
+                        initial_ensemble
                         )
             # Update state using a random ensemble member
             self.state = Y_analysis[:, np.random.randint(0, self.N_ensemble), :].copy()
