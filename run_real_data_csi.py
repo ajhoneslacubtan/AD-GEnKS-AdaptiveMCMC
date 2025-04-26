@@ -242,8 +242,8 @@ def main():
     sigma_eta_sq = params['sigma_eta_sq']
     sigma_eta_str = f"{sigma_eta_sq:.1f}"
 
-    posterior_filename = f"real_posterior_sw{smoothing_window}_sigmaEta{sigma_eta_str}.nc"
-    rest_filename = f"real_inference_data_rest_sw{smoothing_window}_sigmaEta{sigma_eta_str}.nc"
+    posterior_filename = f"/mnt/share/real_data_csi/real_posterior_csi_sw{smoothing_window}_sigmaEta{sigma_eta_str}.nc"
+    rest_filename = f"/mnt/share/real_data_csi/real_inference_data_csi_rest_sw{smoothing_window}_sigmaEta{sigma_eta_str}.nc"
 
     # -------------------
     # Save posterior samples
