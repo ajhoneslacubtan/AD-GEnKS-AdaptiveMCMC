@@ -117,8 +117,9 @@ def main():
     # Set time steps based on the training observations (note: observations are from t=1,...,T; initial state is unobserved)
     params['time_steps'] = observations.shape[1]
     params['smoothing_window'] = 3
-    params['sigma_eta_sq'] = 0.02
-    params['sigma_epsilon_sq'] = 0.0
+    params['sigma_eta_sq'] = 0.05
+    params['sigma_epsilon_sq'] = 0.1
+    params['prior_params']['initial_state']['v_state'] = 1
 
     # Create neighbor index array
     neighbour_locs = create_neighbour_locs(grid_size_x, grid_size_y)  # shape: (N, 5)
