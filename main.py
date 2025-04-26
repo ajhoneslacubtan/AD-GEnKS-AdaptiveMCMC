@@ -22,23 +22,21 @@ def main():
     params = initialize_simulation_params()
     # Modify the parameters for the Gibbs sampler
     params['N_ensemble'] = 100
-    params['smoothing_window'] = 6
+    params['smoothing_window'] = 3
     params['time_steps'] = 29
-    params['grid_size_x'] = 124
-    params['grid_size_y'] = 176
+    params['grid_size_x'] = 20
+    params['grid_size_y'] = 20
     params['grid_shape'] = (params['grid_size_x'], params['grid_size_y'])
     params['N'] = params['grid_size_x'] * params['grid_size_y']
     
-    params['alpha'] = 0.9
-    params['sigma_nu_sq'] = 0.01
+    params['alpha'] = 0.8
+    params['sigma_nu_sq'] = 0.001
 
     params['beta'] = 0.2
-    params['sigma_eta_sq'] = 800.0
+    params['sigma_eta_sq'] = 20.0
 
-    params['sigma_epsilon_sq'] = 2000.0
+    params['sigma_epsilon_sq'] = 1200.0
 
-    params['prior_params']['autoregression']['m_alpha'] = 0.7
-    params['prior_params']['autoregression']['v_alpha'] = 0.1
     params['prior_params']['initial_state']['m_state'] = 600
     params['prior_params']['initial_state']['v_state'] = 8000.0
 
@@ -102,19 +100,19 @@ def main():
     # Burn-in, thinning and number of iterations for the Gibbs sampler
     burn_in = 1000
     thin = 2
-    iterations = 2000
+    num_iterations = 2000
 
     # Initialize the Gibbs sampler with fixed sigmas
     gibbs_sampler = GibbsSampler(
         observations=observations,
         neighbour_locs=neighbour_locs,
-        num_iterations=iterations,
+        num_iterations=num_iterations,
         burn_in=burn_in,
         thin=thin,
         alpha_init=mcmc_init['alpha'],
         beta_init=0.2,
         sigma_eta_sq_init=params['sigma_eta_sq'],
-        sigma_nu_sq_init=params['sigma_nu_sq'],
+        sigma_nu_sq_init=0.001,
         sigma_epsilon_sq_init=params['sigma_epsilon_sq'],
         nu_init=mcmc_init['nu'],
         state_init=mcmc_init['state'],
@@ -195,7 +193,7 @@ def main():
     
     # Save posterior samples as InferenceData with smoothing window in filename
     smoothing_window = params['smoothing_window']
-    posterior_filename = f"posterior_sw_{smoothing_window}.nc"
+    posterior_filename = f"/mnt/share/simulation-v2/posterior_sw_{smoothing_window}.nc"
     idata_posterior = az.from_dict(
         posterior=posterior,
         coords={
@@ -217,7 +215,7 @@ def main():
     az.to_netcdf(idata_posterior, posterior_filename)
 
     # Save the remaining data (observed, constant, likelihood) as InferenceData with smoothing window in filename
-    rest_filename = f"inference_data_rest_sw_{smoothing_window}.nc"
+    rest_filename = f"/mnt/share/simulation-v2/inference_data_rest_sw_{smoothing_window}.nc"
     idata_rest = az.from_dict(
         observed_data=observed_data,
         constant_data=constant_data,

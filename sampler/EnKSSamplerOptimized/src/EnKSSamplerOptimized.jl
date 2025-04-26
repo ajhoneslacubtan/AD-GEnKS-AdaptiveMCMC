@@ -1,6 +1,6 @@
 module EnKSSamplerOptimized
 
-using MKL
+# using MKL
 using LinearAlgebra, Random, Statistics, Distributions
 using Base.Threads
 using ProgressMeter

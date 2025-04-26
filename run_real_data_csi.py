@@ -22,7 +22,7 @@ def main():
     # -------------------------------
     # 1. Load and preprocess the real data
     # -------------------------------
-    ds = xr.open_dataset('data/spatiotemporal_swr_mindanao.nc', engine="netcdf4", decode_times=True)
+    ds = xr.open_dataset('data/clear_sky_index_mindanao.nc', engine="netcdf4", decode_times=True)
 
     # Convert the time coordinate from UTC to Asia/Manila (UTC+8)
     # This creates a timezone-aware DatetimeIndex.
@@ -41,9 +41,9 @@ def main():
     train_set = ds.sel(time=slice(train_start, train_end))
     test_set  = ds.sel(time=slice(test_start, test_end))
 
-    # select SWR directly as a DataArray
-    swr_train_da = train_set["SWR"].transpose("latitude", "longitude", "time")
-    swr_test_da  = test_set["SWR"].transpose("latitude", "longitude", "time")
+    # select CSI directly as a DataArray
+    csi_train_da = train_set["CSI"].transpose("latitude", "longitude", "time")
+    csi_test_da  = test_set["CSI"].transpose("latitude", "longitude", "time")
 
     # Print dataset to check the time range in a readable format
     print("Train set time range:", pd.Timestamp(train_set.time.values[0]).strftime('%Y-%m-%d %H:%M:%S'), "to", 
@@ -51,8 +51,8 @@ def main():
     print("Test set time range:", pd.Timestamp(test_set.time.values[0]).strftime('%Y-%m-%d %H:%M:%S'), "to",
           pd.Timestamp(test_set.time.values[-1]).strftime('%Y-%m-%d %H:%M:%S'))
     # now .to_numpy() works because netCDF4 backend supports vindex
-    train = np.float64(swr_train_da.to_numpy())
-    test  = np.float64(swr_test_da.to_numpy())
+    train = np.float64(csi_train_da.to_numpy())
+    test  = np.float64(csi_test_da.to_numpy())
 
     grid_size_x, grid_size_y = train.shape[:2]
     N = grid_size_x * grid_size_y
@@ -70,7 +70,7 @@ def main():
     im = ax.imshow(observations[:, 0].reshape(124, 176),
                    cmap='RdYlBu_r', vmin=vmin, vmax=vmax)
     cb = fig.colorbar(im, ax=ax)
-    cb.set_label("SWR Value")
+    cb.set_label("CSI Value")
     title = ax.set_title("Frame 0")
 
     def update_train(frame):
@@ -81,16 +81,16 @@ def main():
 
     ani = animation.FuncAnimation(fig, update_train, frames=observations.shape[1],
                                   interval=500, blit=True)
-    ani.save("swr_animation_train.gif", writer="pillow", fps=2)
+    ani.save("csi_animation_train.gif", writer="pillow", fps=2)
     plt.close()
-    print("GIF saved as swr_animation_train.gif")
+    print("CSI saved as csi_animation_train.gif")
 
     # --- TEST SET ANIMATION ---
     fig, ax = plt.subplots(figsize=(8, 6))
     im = ax.imshow(test_observations[:, 0].reshape(124, 176),
                    cmap='RdYlBu_r', vmin=vmin, vmax=vmax)
     cb = fig.colorbar(im, ax=ax)
-    cb.set_label("SWR Value")
+    cb.set_label("CSI Value")
     title = ax.set_title("Frame 0")
 
     def update_test(frame):
@@ -101,9 +101,9 @@ def main():
 
     ani = animation.FuncAnimation(fig, update_test, frames=test_observations.shape[1],
                                   interval=500, blit=True)
-    ani.save("swr_animation_test.gif", writer="pillow", fps=2)
+    ani.save("csi_animation_test.gif", writer="pillow", fps=2)
     plt.close()
-    print("GIF saved as swr_animation_test.gif")
+    print("GIF saved as csi_animation_test.gif")
 
     # -------------------------------
     # 2. Configure the Gibbs sampler settings
@@ -117,8 +117,8 @@ def main():
     # Set time steps based on the training observations (note: observations are from t=1,...,T; initial state is unobserved)
     params['time_steps'] = observations.shape[1]
     params['smoothing_window'] = 3
-    params['sigma_eta_sq'] = 500.0
-    params['sigma_epsilon_sq'] = 1200.0
+    params['sigma_eta_sq'] = 0.02
+    params['sigma_epsilon_sq'] = 0.0
 
     # Create neighbor index array
     neighbour_locs = create_neighbour_locs(grid_size_x, grid_size_y)  # shape: (N, 5)
@@ -130,20 +130,17 @@ def main():
     pre_train_start = "2025-04-04T10:40:00"
     pre_train_end   = "2025-04-04T11:10:00"  # 5 frames at 10-min resolution
     pre_train_set = ds.sel(time=slice(pre_train_start, pre_train_end))
-    swr_pre_train_da = pre_train_set["SWR"].transpose("latitude", "longitude", "time")
+    csi_pre_train_da = pre_train_set["CSI"].transpose("latitude", "longitude", "time")
 
     # Print dataset to check the time range in a readable format
-    print("Pre-train set time range:", pd.Timestamp(swr_pre_train_da.time.values[0]).strftime('%Y-%m-%d %H:%M:%S'), "to", 
-          pd.Timestamp(swr_pre_train_da.time.values[-1]).strftime('%Y-%m-%d %H:%M:%S'))
+    print("Pre-train set time range:", pd.Timestamp(csi_pre_train_da.time.values[0]).strftime('%Y-%m-%d %H:%M:%S'), "to", 
+          pd.Timestamp(csi_pre_train_da.time.values[-1]).strftime('%Y-%m-%d %H:%M:%S'))
 
-    pre_train = np.float64(swr_pre_train_da.to_numpy())
+    pre_train = np.float64(csi_pre_train_da.to_numpy())
     # Flatten spatial dimensions: (N, T_pre) where T_pre should equal 5
     pre_train = pre_train.reshape((N, pre_train.shape[2]))
     # Compute the mean of the pre-training observations at each grid point
     initial_state_mean = np.mean(pre_train, axis=1)  # shape: (N,)
-
-    print("Initial state mean shape:", initial_state_mean.shape)
-    print("Initial state mean:", np.mean(initial_state_mean))
 
     # Generate initializations for the Gibbs sampler (MCMC initialization for the latent state)
     mcmc_init = get_mcmc_initializations(params, observations)

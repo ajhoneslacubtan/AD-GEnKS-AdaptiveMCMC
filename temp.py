@@ -3,9 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the data
-idata = az.from_netcdf("posterior_sw_6.nc")
-# extra_data = az.from_netcdf("inference_data_rest_sw_6.nc")
-# true_nu = extra_data.constant_data["true_nu"].values
+idata = az.from_netcdf("/mnt/share/simulation-v2/posterior_sw_3.nc")
+extra_data = az.from_netcdf("/mnt/share/simulation-v2/inference_data_rest_sw_3.nc")
+true_nu = extra_data.constant_data["true_nu"].values
 
 # Extract posterior samples of nu
 nu_samples = idata.posterior["nu"].values
@@ -28,7 +28,7 @@ fig.suptitle("Analysis 1: Window=3", fontsize=14)
 axs[0].fill_between(time, nu_lower[0, 1:-1], nu_upper[0, 1:-1],
                     color='blue', alpha=0.2, label="95% Credible Interval")
 axs[0].plot(time, nu_mean[0, 1:-1], 'b--', linewidth=2, label="Posterior Mean")
-# axs[0].plot(time, true_nu[0, 1:-1], 'k-', linewidth=2, label="True $v_x$")
+axs[0].plot(time, true_nu[0, 1:-1], 'k-', linewidth=2, label="True $v_x$")
 axs[0].set_ylabel("$v_x$")
 axs[0].set_title("$v_x$ over Time")
 axs[0].legend(loc="best")
@@ -37,7 +37,7 @@ axs[0].legend(loc="best")
 axs[1].fill_between(time, nu_lower[1, 1:-1], nu_upper[1, 1:-1],
                     color='green', alpha=0.2, label="95% Credible Interval")
 axs[1].plot(time, nu_mean[1, 1:-1], 'g--', linewidth=2, label="Posterior Mean")
-# axs[1].plot(time, true_nu[1, 1:-1], 'k-', linewidth=2, label="True $v_y$")
+axs[1].plot(time, true_nu[1, 1:-1], 'k-', linewidth=2, label="True $v_y$")
 axs[1].set_ylabel("$v_y$")
 axs[1].set_xlabel("Time Index")
 axs[1].set_title("$v_y$ over Time")

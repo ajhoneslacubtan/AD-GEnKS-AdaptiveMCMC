@@ -9,3 +9,5 @@ logs/
 *.pkl
 gibbs_results.zarr/
 !spatiotemporal_swr_mindanao.nc
+!clear_sky_ghi_mindanao.nc
+!clear_sky_index_mindanao.nc
