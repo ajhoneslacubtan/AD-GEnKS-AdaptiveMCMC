@@ -1,4 +1,4 @@
-AD-GEnKS-AdaptiveMCMC
+# AD-GEnKS-AdaptiveMCMC
 
 A Python implementation of an Adaptive Metropolis-within-Gibbs sampler with Ensemble Kalman Smoother for spatiotemporal modeling.
 
